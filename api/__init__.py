@@ -1,0 +1,1 @@
+"API module for Pharma RAG system"

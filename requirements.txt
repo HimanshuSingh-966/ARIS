@@ -1,0 +1,32 @@
+# Scraper
+requests==2.31.0
+boto3==1.34.0
+beautifulsoup4==4.12.3
+lxml==5.1.0
+pdfplumber==0.11.0
+pytesseract==0.3.10
+pypdf==4.2.0
+aiohttp==3.9.3
+aiofiles==23.2.1
+Pillow==10.3.0
+
+# Pipeline
+sentence-transformers==3.0.1
+langchain==0.2.0
+langchain-community==0.2.0
+PyMuPDF
+
+# Database
+psycopg2-binary==2.9.9
+pgvector==0.2.5
+sqlalchemy==2.0.30
+supabase
+
+# API
+fastapi==0.111.0
+uvicorn==0.30.1
+python-dotenv==1.0.1
+pydantic==2.7.1
+
+# LLM
+google-generativeai==0.7.2

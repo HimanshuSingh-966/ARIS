@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pharma_rag_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    networks:
+      - pharma_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pharma_rag_frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      # Mount the code for live-reloading (HMR)
+      - ./frontend:/app
+      # Create an anonymous volume to prevent local node_modules from conflicting
+      - /app/node_modules
+    networks:
+      - pharma_network
+    depends_on:
+      - api
+
+networks:
+  pharma_network:
+    driver: bridge
