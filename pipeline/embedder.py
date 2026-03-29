@@ -1,76 +1,46 @@
-"""
-pipeline/embedder.py
-Generates 384-dimensional embeddings using sentence-transformers.
-Model: all-MiniLM-L6-v2 — free, fast, runs locally, no API needed.
-"""
-
+import os
 import logging
 import time
 from typing import Any
 
 log = logging.getLogger(__name__)
 
-MODEL_NAME = "all-MiniLM-L6-v2"
-BATCH_SIZE = 32   # chunks per embedding batch
-
-_model = None     # cached model instance
-
+# Model: gemini-embedding-2-preview — high performance, low memory footprint (API based)
+MODEL_NAME = "models/gemini-embedding-2-preview"
+DIMENSION  = 384   # Matching existing Supabase/pgvector schema
 
 def get_model():
-    """Load model once and cache it."""
-    global _model
-    if _model is None:
-        print(f"  [Embedder] Loading {MODEL_NAME}...")
-        start = time.time()
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(MODEL_NAME)
-        elapsed = time.time() - start
-        print(f"  [Embedder] Model loaded in {elapsed:.1f}s")
-    return _model
-
+    """Gemini embeddings don't need a local model instance, just the API key."""
+    if not os.environ.get("GEMINI_API_KEY"):
+        log.warning("[Embedder] GEMINI_API_KEY not set!")
+    return None
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """
-    Generate embeddings for a list of texts.
-    Processes in batches to manage memory.
-
-    Args:
-        texts: list of text strings to embed
-
-    Returns:
-        list of 384-dimensional float vectors
+    Generate embeddings for a list of texts using Google Gemini API.
     """
     if not texts:
         return []
 
-    model      = get_model()
-    embeddings = []
-
-    for i in range(0, len(texts), BATCH_SIZE):
-        batch = texts[i:i + BATCH_SIZE]
-        print(f"  [Embedder] Embedding batch {i//BATCH_SIZE + 1}/"
-              f"{(len(texts) + BATCH_SIZE - 1)//BATCH_SIZE} "
-              f"({len(batch)} texts)")
-        batch_embeddings = model.encode(
-            batch,
-            show_progress_bar = False,
-            convert_to_numpy  = True,
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        
+        # Batch processing is handled by the API itself or we can loop
+        # For simplicity and reliability with smaller inputs, we use the batch API
+        result = genai.embed_content(
+            model=MODEL_NAME,
+            content=texts,
+            task_type="retrieval_document",
+            output_dimensionality=DIMENSION
         )
-        embeddings.extend([tensor.tolist() for tensor in batch_embeddings])
-
-    return embeddings
-
+        return result['embedding']
+    except Exception as e:
+        log.error(f"[Embedder] Gemini embedding failed: {e}")
+        raise
 
 def embed_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """
-    Add embeddings to a list of chunk dicts.
-
-    Args:
-        chunks: list of chunk dicts from chunker.py
-
-    Returns:
-        same chunks with 'embedding' field added
-    """
+    """Add embeddings to a list of chunk dicts."""
     if not chunks:
         return []
 
@@ -82,18 +52,19 @@ def embed_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     return chunks
 
-
 def embed_query(query: str) -> list[float]:
-    """
-    Embed a single query string for vector search.
-    Used by the RAG retriever.
-
-    Args:
-        query: user question
-
-    Returns:
-        384-dimensional float vector
-    """
-    model     = get_model()
-    embedding = model.encode([query], convert_to_numpy=True)
-    return embedding[0].tolist()
+    """Embed a single query string for vector search."""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        
+        result = genai.embed_content(
+            model=MODEL_NAME,
+            content=query,
+            task_type="retrieval_query",
+            output_dimensionality=DIMENSION
+        )
+        return result['embedding']
+    except Exception as e:
+        log.error(f"[Embedder] Gemini query embedding failed: {e}")
+        return [0.0] * DIMENSION
