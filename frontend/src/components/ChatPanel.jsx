@@ -20,7 +20,7 @@ function ChatPanel({ docId, onClose, isOpen }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isOpen]);
 
-  const handleSendMessage = async (text) => {
+  const handleSendMessage = async (text, country = null, source = null) => {
     if (!text.trim()) return;
     
     const newUserMsg = { id: Date.now().toString(), role: 'user', content: text };
@@ -28,23 +28,36 @@ function ChatPanel({ docId, onClose, isOpen }) {
     setIsLoading(true);
 
     try {
-      // MOCK API CALL - This will be replaced by the actual FastAPI integeration
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const response = await fetch('/api/v1/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: text,
+          doc_id: docId || null,
+          country: country,
+          source: source,
+          top_k: 5
+        })
+      });
+
+      if (!response.ok) throw new Error('API request failed');
+      
+      const data = await response.json();
       
       const aiResponse = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `This is a simulated AI response regarding the document **${docId}**. The actual FastAPI integration will be hooked up shortly via the \`/api/chat\` endpoint.`,
-        sources: [
-          { page: 12, text: "Mocked citation from the text." }
-        ]
+        content: data.answer,
+        sources: data.sources || [],
+        forms: data.forms || []
       };
       setMessages(prev => [...prev, aiResponse]);
     } catch (error) {
+      console.error('Chat error:', error);
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: "⚠️ **Error:** Unable to reach the AI service.",
+        content: "⚠️ **Error:** Unable to reach the AI service. Please ensure the backend is running.",
         sources: []
       }]);
     } finally {
