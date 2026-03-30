@@ -151,6 +151,7 @@ def process_document(doc: dict, dry_run: bool = False) -> dict:
     # Advanced Heuristics (inspecting source path + doc_name for better hinting)
     combined_hint = (doc_name + " " + b2_key).lower()
 
+    section = "general"
     if "guidance" in combined_hint or "guideline" in combined_hint or "rule" in combined_hint or ("act" in combined_hint and "fact" not in combined_hint):
         section = "guidance-documents"
     elif "trial" in combined_hint or "ct" in combined_hint or "clinical" in combined_hint:

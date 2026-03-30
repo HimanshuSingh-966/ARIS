@@ -22,10 +22,12 @@ sqlalchemy==2.0.30
 supabase
 
 # API
-fastapi==0.111.0
-uvicorn==0.30.1
-python-dotenv==1.0.1
-pydantic==2.7.1
+fastapi==0.109.2
+uvicorn==0.27.1
+supabase==2.11.0
+httpx==0.27.2
+websockets>=13.0
+pdfplumber==0.11.0
+fastembed==0.5.1
 
 # LLM
-google-generativeai==0.7.2

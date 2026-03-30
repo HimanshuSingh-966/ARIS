@@ -1,42 +1,41 @@
-import os
 import logging
-import time
 from typing import Any
+from fastembed import TextEmbedding
 
 log = logging.getLogger(__name__)
 
-# Model: gemini-embedding-2-preview — high performance, low memory footprint (API based)
-MODEL_NAME = "models/gemini-embedding-2-preview"
-DIMENSION  = 384   # Matching existing Supabase/pgvector schema
+# Model: BAAI/bge-small-en-v1.5 — high performance, low memory footprint (CPU optimized)
+# Dimension: 384 — Matching existing Supabase/pgvector schema
+MODEL_NAME = "BAAI/bge-small-en-v1.5"
+DIMENSION  = 384
+
+_model = None
 
 def get_model():
-    """Gemini embeddings don't need a local model instance, just the API key."""
-    if not os.environ.get("GEMINI_API_KEY"):
-        log.warning("[Embedder] GEMINI_API_KEY not set!")
-    return None
+    """Lazy load FastEmbed model."""
+    global _model
+    if _model is None:
+        log.info(f"[Embedder] Loading FastEmbed model: {MODEL_NAME}")
+        _model = TextEmbedding(model_name=MODEL_NAME)
+    return _model
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """
-    Generate embeddings for a list of texts using Google Gemini API.
+    Generate embeddings for a list of texts using FastEmbed.
+    Runs locally, CPU optimized, no rate limits.
     """
     if not texts:
         return []
 
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        model = get_model()
+        # model.embed returns an iterator of numpy arrays
+        embeddings = list(model.embed(texts))
         
-        # Batch processing is handled by the API itself or we can loop
-        # For simplicity and reliability with smaller inputs, we use the batch API
-        result = genai.embed_content(
-            model=MODEL_NAME,
-            content=texts,
-            task_type="retrieval_document",
-            output_dimensionality=DIMENSION
-        )
-        return result['embedding']
+        # Convert numpy arrays to lists of floats for Supabase compatibility
+        return [e.tolist() for e in embeddings]
     except Exception as e:
-        log.error(f"[Embedder] Gemini embedding failed: {e}")
+        log.error(f"[Embedder] FastEmbed embedding failed: {e}")
         raise
 
 def embed_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -54,17 +53,14 @@ def embed_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def embed_query(query: str) -> list[float]:
     """Embed a single query string for vector search."""
+    if not query:
+        return [0.0] * DIMENSION
+
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        
-        result = genai.embed_content(
-            model=MODEL_NAME,
-            content=query,
-            task_type="retrieval_query",
-            output_dimensionality=DIMENSION
-        )
-        return result['embedding']
+        model = get_model()
+        # FastEmbed expects a list, returns an iterator
+        embeddings = list(model.embed([query]))
+        return embeddings[0].tolist()
     except Exception as e:
-        log.error(f"[Embedder] Gemini query embedding failed: {e}")
+        log.error(f"[Embedder] FastEmbed query embedding failed: {e}")
         return [0.0] * DIMENSION
