@@ -15,10 +15,10 @@ function SourceCitations({ sources }) {
           href={src.b2_key ? `https://f004.backblazeb2.com/file/pharma-rag-docs/${src.b2_key}` : '#'}
           target="_blank"
           rel="noreferrer"
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 transition-colors text-muted hover:text-white"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors text-slate-600 hover:text-[#0f766e]"
           title={`Similarity Score: ${(src.similarity * 100).toFixed(1)}%`}
         >
-          <Database className="w-3 h-3 opacity-70" />
+          <Database className="w-3 h-3 text-slate-400" />
           <span className="max-w-[150px] truncate">{src.doc_name}</span>
           <span className="opacity-50 mx-1">•</span>
           <span className="uppercase text-[10px] font-bold tracking-wider">{src.source}</span>

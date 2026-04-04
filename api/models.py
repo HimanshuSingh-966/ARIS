@@ -28,12 +28,12 @@ class SourceCitation(BaseModel):
 
 class FormItem(BaseModel):
     id:          int
-    form_number: str = ""
-    form_name:   str = ""
-    country:     str = ""
-    source:      str = ""
-    description: str = ""
-    b2_key:      str = ""
+    form_number: Optional[str] = ""
+    form_name:   Optional[str] = ""
+    country:     Optional[str] = ""
+    source:      Optional[str] = ""
+    description: Optional[str] = ""
+    b2_key:      Optional[str] = ""
 
 
 class ChatResponse(BaseModel):

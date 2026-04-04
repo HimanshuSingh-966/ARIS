@@ -10,11 +10,15 @@ import PdfList from './components/PdfList.jsx';
 import PdfViewer from './components/PdfViewer.jsx';
 import FormsPage from './components/FormsPage.jsx';
 import AboutUs from './components/AboutUs.jsx';
+import ChatPanel from './components/ChatPanel.jsx';
 
 function App() {
+  const [isChatOpen, setIsChatOpen] = React.useState(false);
+
   return (
     <div className="flex flex-col h-screen bg-background text-white overflow-hidden bg-mesh relative">
-      <Navbar />
+      <Navbar onOpenAI={() => setIsChatOpen(true)} />
+      
       <div className="flex-1 overflow-y-auto hide-scrollbar relative z-0">
         <Routes>
           <Route path="/" element={<Hero />} />
@@ -26,6 +30,13 @@ function App() {
           <Route path="/forms" element={<FormsPage />} />
         </Routes>
       </div>
+
+      {/* Global AI Assistant Overlay */}
+      <ChatPanel 
+        isOpen={isChatOpen} 
+        onClose={() => setIsChatOpen(false)} 
+        docId="Global Mode"
+      />
     </div>
   );
 }

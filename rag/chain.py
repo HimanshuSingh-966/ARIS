@@ -22,7 +22,7 @@ try:
 except ImportError:
     raise ImportError("Could not import pipeline.embedder. Ensure pipeline/ module exists.")
 
-from rag.retriever import retrieve, retrieve_forms, search_forms_by_query
+from rag.retriever import retrieve, retrieve_forms, search_forms_by_query, search_forms_semantic
 from rag.prompt    import build_prompt, build_sources, is_form_query
 from rag.llm       import generate
 
@@ -63,7 +63,7 @@ def run(
     chunks = retrieve(
         query_embedding = query_embedding,
         top_k           = top_k,
-        threshold       = 0.3,
+        threshold       = 0.15,
         country         = country,
         source          = source,
         doc_id          = doc_id,
@@ -73,27 +73,33 @@ def run(
     # Step 3 — Find relevant forms if query asks for them
     forms = []
     if is_form_query(query):
-        # Search forms by query keywords
+        # 1. Keyword search (exact matches like "Form 44")
         keywords = _extract_form_keywords(query)
         for kw in keywords:
-            found = search_forms_by_query(kw)
-            forms.extend(found)
+            forms.extend(search_forms_by_query(kw))
 
-        # Also filter by country if specified
-        if not forms and country:
-            country_map = {"India": "cdsco", "USA": "fda", "Europe": "ema"}
-            src = country_map.get(country)
-            if src:
-                forms = retrieve_forms(source=src)[:5]
+        # 2. Semantic search (intent-based matches like "licence")
+        semantic_forms = search_forms_semantic(query_embedding, limit=5)
+        forms.extend(semantic_forms)
 
-        # Deduplicate forms
+        # 3. Deduplicate and Rank
         seen_ids = set()
         unique_forms = []
         for f in forms:
             if f["id"] not in seen_ids:
                 seen_ids.add(f["id"])
-                unique_forms.append(f)
-        forms = unique_forms[:5]  # max 5 forms
+                # Add download metadata for UI
+                unique_forms.append({
+                    "id":          f["id"],
+                    "form_number": f.get("form_number", ""),
+                    "form_name":   f.get("title", f.get("form_name", "")),
+                    "country":     f.get("country", ""),
+                    "source":      f.get("source", ""),
+                    "description": f.get("rule_reference", ""),
+                    "b2_key":      f.get("b2_key", ""),
+                })
+        
+        forms = unique_forms[:5]
 
     # Step 4 — Build prompt
     if not chunks:

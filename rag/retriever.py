@@ -1,7 +1,7 @@
 """
 rag/retriever.py
 Vector similarity search against Supabase pgvector.
-Returns top-k relevant chunks for a user query.
+Returns top-k relevant chunks or forms for a user query.
 """
 
 import os
@@ -31,21 +31,7 @@ def retrieve(
     source:          str | None     = None,
     doc_id:          str | None     = None,
 ) -> list[dict]:
-    """
-    Search pgvector for relevant chunks.
-
-    Args:
-        query_embedding : 384-dim vector from embedder
-        top_k           : number of results to return
-        threshold       : minimum similarity score (0-1)
-        country         : filter by "India" / "USA" / "Europe"
-        source          : filter by "cdsco" / "fda" / "ema"
-        doc_id          : filter strictly by document id
-
-
-    Returns:
-        list of chunk dicts with similarity scores
-    """
+    """Search pgvector for relevant document chunks."""
     try:
         params = {
             "query_embedding": query_embedding,
@@ -55,10 +41,18 @@ def retrieve(
             "filter_country":  country,
             "filter_doc_id":   doc_id,
         }
+        log.info(f"[Retriever] match_documents call: threshold={threshold}, top_k={top_k}, country={country}, source={source}")
         result = get_client().rpc("match_documents", params).execute()
+        
+        found_count = len(result.data) if result.data else 0
+        log.info(f"[Retriever] match_documents results: found={found_count}")
+        if found_count > 0:
+            top_score = result.data[0].get('similarity', 0)
+            log.info(f"[Retriever] Match found: top_score={top_score:.4f}")
+            
         return result.data or []
     except Exception as e:
-        log.error(f"[Retriever] Search failed: {e}")
+        log.error(f"[Retriever] Doc search failed: {e}")
         return []
 
 
@@ -66,16 +60,11 @@ def retrieve_forms(
     country: str | None = None,
     source:  str | None = None,
 ) -> list[dict]:
-    """
-    Fetch forms from Supabase forms table.
-    Used when user asks for downloadable forms.
-    """
+    """Fetch all forms from Supabase forms table."""
     try:
         query = get_client().table("forms").select("*")
-        if country:
-            query = query.eq("country", country)
-        if source:
-            query = query.eq("source", source)
+        if country: query = query.eq("country", country)
+        if source:  query = query.eq("source", source)
         result = query.order("form_number").execute()
         return result.data or []
     except Exception as e:
@@ -85,14 +74,27 @@ def retrieve_forms(
 
 def search_forms_by_query(query_text: str) -> list[dict]:
     """
-    Search forms by name/number using text matching.
-    Used when user specifically asks for a form.
+    Keywords search for forms.
     """
     try:
-        result = get_client().table("forms").select("*").ilike(
-            "form_name", f"%{query_text}%"
-        ).execute()
+        result = get_client().rpc("search_forms_keyword", {"query_text": query_text}).execute()
         return result.data or []
     except Exception as e:
-        log.error(f"[Retriever] Form search failed: {e}")
+        log.error(f"[Retriever] Form keyword search failed: {e}")
+        return []
+
+def search_forms_semantic(query_embedding: list[float], limit: int = 5) -> list[dict]:
+    """
+    Semantic search for forms using pgvector.
+    """
+    try:
+        params = {
+            "query_embedding": query_embedding,
+            "match_threshold": 0.2,
+            "match_count":     limit
+        }
+        result = get_client().rpc("search_forms_semantic", params).execute()
+        return result.data or []
+    except Exception as e:
+        log.error(f"[Retriever] Form semantic search failed: {e}")
         return []

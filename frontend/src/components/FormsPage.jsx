@@ -1,160 +1,183 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, Download, MessageSquarePlus, FileText } from 'lucide-react';
+import { Search, Filter, Download, FileText, Loader2, AlertCircle, X } from 'lucide-react';
+import FormCard from './FormCard';
+import axios from 'axios';
+
+const CATEGORIES = [
+  'All', 'Manufacturing', 'Import / Export', 'Clinical Trial', 
+  'Wholesale / Retail', 'Testing / Analysis', 'Blood Bank / Biologics',
+  'Traditional Medicine', 'Cosmetics', 'Registration'
+];
 
 function FormsPage() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterCountry, setFilterCountry] = useState('All');
-  
+  const [query, setQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [forms, setForms] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
-    const fetchForms = async () => {
-      setIsLoading(true);
-      try {
-        const res = await fetch('/api/v1/forms');
-        if (res.ok) {
-          const data = await res.json();
-          setForms(data.forms || []);
-        } else {
-          console.error('Failed to fetch forms');
-        }
-      } catch (err) {
-        console.error('Error fetching forms:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
     fetchForms();
-  }, []);
+  }, [selectedCategory]);
 
-  const handleDownload = async (formId) => {
+  const fetchForms = async (searchQuery = '') => {
+    setLoading(true);
+    setError(null);
     try {
-      const res = await fetch(`/api/v1/forms/${formId}/download`);
-      if (res.ok) {
-        const data = await res.json();
-        window.open(data.download_url, '_blank');
-      } else {
-        alert('Failed to generate download link.');
-      }
+      const params = {};
+      if (searchQuery) params.q = searchQuery;
+      if (selectedCategory !== 'All') params.type = selectedCategory;
+      
+      const response = await axios.get('/api/v1/forms', { params });
+      setForms(response.data.forms || []);
     } catch (err) {
-      console.error('Download error:', err);
+      console.error('Fetch error:', err);
+      setError('Unable to load forms. Please try again.');
+    } finally {
+      setLoading(false);
+      setIsSearching(false);
     }
   };
 
-  const filteredForms = forms.filter(f => {
-    if (filterCountry !== 'All' && f.country !== filterCountry) return false;
-    if (searchQuery && !(f.form_name || '').toLowerCase().includes(searchQuery.toLowerCase()) && !(f.form_number || '').toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    return true;
-  });
+  const handleSearch = (e) => {
+    e.preventDefault();
+    setIsSearching(true);
+    fetchForms(query);
+  };
+
+  const handleDownload = async (formId) => {
+    try {
+      const res = await axios.get(`/api/v1/forms/${formId}/download`);
+      window.open(res.data.download_url, '_blank');
+    } catch (err) {
+      alert('Failed to generate download link. Please try later.');
+    }
+  };
 
   return (
-    <div className="flex-1 w-full h-full overflow-y-auto px-6 py-12 hide-scrollbar">
-      <div className="max-w-6xl mx-auto animate-fade-right">
+    <div className="flex-1 w-full h-full overflow-y-auto bg-[#f8fafc] hide-scrollbar">
+      {/* Search Header */}
+      <div className="bg-[#0f766e] py-16 px-6 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-0 left-0 w-96 h-96 bg-white rounded-full blur-[100px] -translate-x-1/2 -translate-y-1/2" />
+          <div className="absolute bottom-0 right-0 w-96 h-96 bg-white rounded-full blur-[100px] translate-x-1/2 translate-y-1/2" />
+        </div>
         
-        {/* Header Section */}
-        <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div>
-            <div className="px-3 py-1 rounded-full border border-[#0f766e]/20 bg-[#0f766e]/5 text-xs font-semibold tracking-widest uppercase text-[#0f766e] mb-6 backdrop-blur-sm inline-block">
-              Global Directory
+        <div className="max-w-4xl mx-auto relative z-10 text-center">
+          <h1 className="text-fluid-hero font-extrabold text-white mb-4 tracking-tight">
+            Regulatory Forms Intelligence
+          </h1>
+          <p className="text-fluid-subhero text-[#ccfbf1] font-medium mb-10 opacity-90 max-w-2xl mx-auto leading-tight">
+            Search 80+ official forms across India's Drug Rules with natural language intent.
+          </p>
+
+          <form onSubmit={handleSearch} className="relative group max-w-2xl mx-auto">
+            <div className="absolute inset-y-0 left-5 flex items-center pointer-events-none">
+              <Search className="w-6 h-6 text-[#94a3b8] group-focus-within:text-[#0f766e] transition-colors" />
             </div>
-            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-[#0f172a] mb-4">
-              Regulatory <span className="font-serif italic text-[#0f766e] font-medium">Forms</span>
-            </h1>
-            <p className="text-[#334155] font-medium text-lg max-w-2xl">
-              Browse, filter, and instantly download official submission forms across major regulatory agencies.
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Finding a blood bank licence...?"
+              className="w-full pl-14 pr-32 py-5 bg-white rounded-2xl shadow-xl shadow-[#0f766e]/20 text-[#1e293b] text-base md:text-lg font-medium border-0 focus:ring-4 focus:ring-[#5eead4]/30 transition-all placeholder:text-[#94a3b8]"
+            />
+            <button 
+              type="submit"
+              disabled={isSearching}
+              className="absolute right-3 top-2.5 bottom-2.5 px-4 md:px-8 bg-[#0f766e] text-white font-bold rounded-xl hover:bg-[#115e59] transition-all shadow-md active:scale-95 disabled:opacity-70 flex items-center justify-center gap-2 min-w-[54px] md:min-w-0"
+            >
+              {isSearching ? <Loader2 className="w-5 h-5 animate-spin" /> : 
+                <>
+                  <Search className="w-5 h-5 md:hidden" />
+                  <span className="hidden md:block">Search</span>
+                </>
+              }
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* Filters & Results */}
+      <div className="max-w-[1400px] mx-auto px-4 md:px-8 -mt-8 relative z-20 pb-20">
+        {/* Category Scroll */}
+        <div className="bg-white p-2 rounded-2xl shadow-lg border border-slate-100 mb-10">
+          <div className="flex items-center gap-4 overflow-x-auto pb-1 hide-scrollbar mask-fade-right">
+            <div className="flex items-center px-4 border-r border-slate-100 text-slate-400">
+              <Filter className="w-4 h-4 mr-2" />
+              <span className="text-[10px] font-bold uppercase tracking-widest whitespace-nowrap">Filter</span>
+            </div>
+            {CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-6 py-3 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
+                  selectedCategory === cat 
+                  ? 'bg-[#0f766e] text-white shadow-md scale-105' 
+                  : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Results Info */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 px-2">
+          <div>
+            <h2 className="text-xl md:text-2xl font-extrabold text-[#0f172a] flex items-center">
+              {selectedCategory === 'All' ? 'Official Forms' : selectedCategory}
+              <span className="ml-3 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-100 px-3 py-1 rounded-full uppercase tracking-tighter">
+                {forms.length} Results
+              </span>
+            </h2>
+          </div>
+          {query && (
+            <button 
+              onClick={() => { setQuery(''); fetchForms(''); }}
+              className="text-sm font-bold text-[#0f766e] flex items-center justify-center hover:underline bg-white px-4 py-2 rounded-lg border border-slate-100 md:border-0 md:bg-transparent"
+            >
+              Clear Search <X className="ml-1 w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Grid */}
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="bg-white rounded-2xl h-80 animate-pulse border border-slate-100 shadow-sm" />
+            ))}
+          </div>
+        ) : error ? (
+          <div className="bg-red-50 border border-red-100 rounded-2xl p-12 text-center shadow-inner">
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <p className="text-red-700 font-bold text-lg">{error}</p>
+            <button onClick={() => fetchForms(query)} className="mt-4 text-[#0f766e] font-bold hover:underline">
+              Retry Selection
+            </button>
+          </div>
+        ) : forms.length === 0 ? (
+          <div className="bg-slate-50 rounded-3xl p-20 text-center border-2 border-dashed border-slate-200">
+            <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-xl font-bold text-slate-900 mb-2">No matching forms found</h3>
+            <p className="text-slate-500 max-w-sm mx-auto">
+              We couldn't find any forms matching your current search or filter. Try using broader keywords like "licence" or "manufacturing".
             </p>
           </div>
-          
-          <button className="flex items-center justify-center gap-3 px-6 py-4 rounded-xl font-medium text-[#0f766e] bg-white/60 hover:bg-white border border-[#0f766e]/20 transition-all shadow-sm hover:shadow-md group whitespace-nowrap">
-            <MessageSquarePlus className="w-5 h-5 text-[#0f766e] group-hover:scale-110 transition-transform" />
-            <div className="text-left leading-tight">
-              <span className="block text-xs uppercase tracking-wider text-[#334155] font-bold">Need Help?</span>
-              <span className="font-bold tracking-wide text-[#0f172a]">Ask AI Assistant</span>
-            </div>
-          </button>
-        </header>
-
-        {/* Global Search and Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-8">
-          <div className="relative md:col-span-6">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#0f766e] pointer-events-none" />
-            <input 
-              type="text" 
-              placeholder="Search by form number or name..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white/60 border border-[#0f766e]/20 rounded-xl py-3 pl-12 pr-4 text-[#0f172a] placeholder-[#0f766e]/60 focus:outline-none focus:border-[#0f766e]/50 transition-colors shadow-sm"
-            />
-          </div>
-          
-          <div className="relative md:col-span-6">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#0f766e] pointer-events-none" />
-            <select 
-              value={filterCountry}
-              onChange={(e) => setFilterCountry(e.target.value)}
-              className="w-full appearance-none bg-white/60 border border-[#0f766e]/20 rounded-xl py-3 pl-10 pr-10 text-[#0f172a] font-medium focus:outline-none focus:border-[#0f766e]/50 transition-colors hover:bg-white/80 cursor-pointer shadow-sm"
-            >
-              <option value="All">All Countries</option>
-              <option value="India">India</option>
-              <option value="USA">USA</option>
-              <option value="Europe">Europe</option>
-            </select>
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none border-l-4 border-r-4 border-t-4 border-transparent border-t-[#0f766e] w-0 h-0"></div>
-          </div>
-        </div>
-
-        {/* Form Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {isLoading ? (
-            <div className="col-span-full py-20 flex justify-center items-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0f766e]"></div>
-            </div>
-          ) : filteredForms.map((form) => (
-            <div key={form.id} className="glass-card flex flex-col p-6 hover:bg-white/80 transition-colors border-[#0f766e]/10 group shadow-sm hover:shadow-md">
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex items-center">
-                  <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 border border-indigo-200">
-                    <FileText className="w-6 h-6 text-indigo-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold tracking-tight text-[#0f172a]">{form.form_number || 'FORM'}</h3>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="px-2 py-0.5 rounded border border-[#0f766e]/20 bg-white/80 text-[10px] font-bold uppercase tracking-wider text-[#0f766e]">
-                        {form.country || form.source}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <p className="text-[#334155] font-semibold text-sm leading-relaxed mb-auto line-clamp-2" title={form.form_name}>
-                {form.form_name}
-              </p>
-
-              <div className="mt-8 pt-4 border-t border-[#0f766e]/10">
-                <button 
-                  onClick={() => handleDownload(form.id)}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#0f766e]/10 hover:bg-[#0f766e] border border-[#0f766e]/20 text-sm font-bold text-[#0f766e] hover:text-white transition-all shadow-sm group-hover:bg-[#0f766e] group-hover:text-white"
-                >
-                  <Download className="w-4 h-4 opacity-70 group-hover:-translate-y-0.5 transition-all" />
-                  Download Form PDF
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {!isLoading && filteredForms.length === 0 && (
-          <div className="py-20 flex flex-col items-center justify-center text-center">
-            <div className="w-16 h-16 rounded-full bg-white/60 flex items-center justify-center mb-4 border border-[#0f766e]/10 shadow-sm">
-              <Search className="w-6 h-6 text-[#0f766e]/50" />
-            </div>
-            <h3 className="text-lg font-bold text-[#0f172a] mb-2">No forms found</h3>
-            <p className="text-[#334155] font-medium max-w-sm">No forms strictly matched your current search and filter criteria.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 animate-fade-in">
+            {forms.map(form => (
+              <FormCard 
+                key={`${form.id}-${form.form_number}`} 
+                form={form} 
+                onDownload={handleDownload} 
+              />
+            ))}
           </div>
         )}
-
       </div>
     </div>
   );

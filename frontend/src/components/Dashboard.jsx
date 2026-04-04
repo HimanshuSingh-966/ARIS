@@ -4,6 +4,14 @@ import { Link } from 'react-router-dom';
 
 const AGENCIES = [
   {
+    id: 'cdsco',
+    name: 'India CDSCO',
+    fullName: 'Central Drugs Standard Control Organisation',
+    color: 'from-orange-500/20 to-transparent',
+    borderColor: 'hover:border-orange-500/50',
+    icon: <FileText className="w-8 h-8 text-orange-400" />
+  },
+  {
     id: 'fda',
     name: 'US FDA',
     fullName: 'Food and Drug Administration',
@@ -18,14 +26,6 @@ const AGENCIES = [
     color: 'from-yellow-500/20 to-transparent',
     borderColor: 'hover:border-yellow-500/50',
     icon: <Database className="w-8 h-8 text-yellow-400" />
-  },
-  {
-    id: 'cdsco',
-    name: 'India CDSCO',
-    fullName: 'Central Drugs Standard Control Organisation',
-    color: 'from-orange-500/20 to-transparent',
-    borderColor: 'hover:border-orange-500/50',
-    icon: <FileText className="w-8 h-8 text-orange-400" />
   }
 ];
 

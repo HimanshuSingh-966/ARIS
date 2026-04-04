@@ -1,74 +1,98 @@
 """
 api/routes/forms.py
-GET /forms         — List all forms (with optional filters)
-GET /forms/{id}/download — Get presigned download URL for a form
+Search, view, and download regulatory forms.
 """
 
 import os
-import sys
 import logging
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-
-# Project root is in sys.path when running via uvicorn from root
-
+from pydantic import BaseModel
 from api.models import FormListResponse, FormDownloadResponse, FormItem
+from pipeline.vector_store import get_client
+from pipeline.embedder import embed_query
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["forms"])
 
+class FormSearchRequest(BaseModel):
+    query: str
+    limit: int = 20
 
 @router.get("/forms", response_model=FormListResponse)
 async def list_forms(
-    country: str | None = Query(None, description="Filter: India / USA / Europe"),
-    source:  str | None = Query(None, description="Filter: cdsco / fda / ema"),
+    q:    Optional[str] = Query(None, description="Search query"),
+    type: Optional[str] = Query(None, description="Filter: Manufacturing / Import / etc"),
+    source: Optional[str] = Query(None, description="Filter: cdsco / fda / ema"),
 ):
-    """List all available regulatory forms."""
-    from rag.retriever import retrieve_forms
+    """
+    Search or list forms. If 'q' is provided, performs a hybrid keyword+semantic search.
+    """
+    client = get_client()
+    
+    if q:
+        # 1. Semantic Search
+        embedding = embed_query(q)
+        semantic_res = client.rpc(
+            "search_forms_semantic", 
+            {"query_embedding": embedding, "match_threshold": 0.25, "match_count": 20}
+        ).execute()
+        
+        # 2. Keyword Search
+        keyword_res = client.rpc(
+            "search_forms_keyword", 
+            {"query_text": q}
+        ).execute()
+        
+        # 3. Merge & Deduplicate
+        merged = {f["id"]: f for f in keyword_res.data}
+        for f in semantic_res.data:
+            if f["id"] not in merged:
+                merged[f["id"]] = f
+        
+        form_data = list(merged.values())
+    else:
+        # Default listing
+        query = client.table("forms").select("*")
+        if type:   query = query.eq("form_type", type)
+        if source: query = query.eq("source", source)
+        
+        res = query.order("form_number").limit(50).execute()
+        form_data = res.data
 
-    forms = retrieve_forms(country=country, source=source)
-
-    form_items = [
+    items = [
         FormItem(
-            id          = f.get("id", 0),
-            form_number = f.get("form_number", ""),
-            form_name   = f.get("form_name", ""),
-            country     = f.get("country", ""),
-            source      = f.get("source", ""),
-            description = f.get("description", ""),
-            b2_key      = f.get("b2_key", ""),
+            id          = f["id"],
+            form_number = f.get("form_number") or "FORM",
+            form_name   = f.get("title") or f.get("form_name") or "",
+            country     = f.get("country") or "",
+            source      = f.get("source") or "",
+            description = f.get("rule_reference") or f.get("description") or "",
+            b2_key      = f.get("b2_key") or "",
         )
-        for f in forms
+        for f in form_data
     ]
-
-    return FormListResponse(forms=form_items, total=len(form_items))
+    
+    return FormListResponse(forms=items, total=len(items))
 
 
 @router.get("/forms/{form_id}/download", response_model=FormDownloadResponse)
-async def download_form(
-    form_id: int,
-):
-    """Get a presigned download URL for a specific form."""
-    from supabase import create_client
-
-    # Fetch form from Supabase
-    client = create_client(
-        os.environ["SUPABASE_URL"],
-        os.environ["SUPABASE_SERVICE_KEY"],
-    )
-
-    result = client.table("forms").select("*").eq("id", form_id).execute()
-
-    if not result.data:
+async def download_form(form_id: int):
+    """Generate a presigned URL for downloading the form segment."""
+    client = get_client()
+    res = client.table("forms").select("*").eq("id", form_id).execute()
+    
+    if not res.data:
         raise HTTPException(status_code=404, detail="Form not found")
-
-    form = result.data[0]
-    b2_key = form.get("b2_key", "")
-
+        
+    form = res.data[0]
+    b2_key = form.get("b2_key")
+    
     if not b2_key:
-        raise HTTPException(status_code=404, detail="No file associated with this form")
+        raise HTTPException(status_code=400, detail="No source file for this form")
 
-    # Generate presigned URL via B2
+    # Generate presigned URL
     import boto3
     from botocore.config import Config
     b2_client = boto3.client(
@@ -86,12 +110,10 @@ async def download_form(
             Params    = {"Bucket": os.environ["B2_BUCKET_NAME"], "Key": b2_key},
             ExpiresIn = 3600,
         )
+        return FormDownloadResponse(
+            form_name    = form.get("title", form.get("form_number", "Form")),
+            download_url = url
+        )
     except Exception as e:
-        log.error(f"[API] Presigned URL error: {e}")
-        raise HTTPException(status_code=500, detail="Could not generate download URL")
-
-    return FormDownloadResponse(
-        form_name    = form.get("form_name", ""),
-        download_url = url,
-        expires_in   = 3600,
-    )
+        log.error(f"Download Error: {e}")
+        raise HTTPException(status_code=500, detail="Cloud storage error")
