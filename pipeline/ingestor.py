@@ -19,29 +19,39 @@ Usage:
 
 import os
 import sys
+import re
 import logging
 import argparse
 import time
 import hashlib
 import boto3
 from datetime import datetime
+from pathlib import Path
 
 # Load .env
 try:
     from dotenv import load_dotenv
-    from pathlib import Path
-    env_path = str(Path(__file__).resolve().parent.parent / ".env")
-    load_dotenv(env_path)
+    load_dotenv(str(Path(__file__).resolve().parent.parent / ".env"))
 except ImportError:
     pass
 
-from extractor    import extract_text
-from chunker      import split_into_chunks, chunk_summary
-from embedder     import embed_chunks
-from vector_store import (
+# The sibling imports below used to be bare (`from extractor import ...`), which
+# resolves only when pipeline/ itself is on sys.path — i.e. only under the
+# documented `python ingestor.py` invocation from inside the directory. That made
+# this module unimportable as `pipeline.ingestor`, so classify_section() could not
+# be reused by the API or covered by tests. Normalising on the absolute package
+# path and fixing up sys.path for script mode keeps both entrypoints working.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from pipeline.extractor    import extract_text
+from pipeline.chunker      import split_into_chunks, chunk_summary
+from pipeline.embedder     import embed_chunks
+from pipeline.vector_store import (
     save_chunks, doc_already_ingested,
     save_form_metadata, form_exists,
     save_doc_metadata,
+    get_client,
     get_stats
 )
 
@@ -58,6 +68,72 @@ COUNTRY_MAP = {
     "ema":   "Europe",
     "cdsco": "India",
 }
+
+
+# ── Section classification ────────────────────────────────────────────────────
+#
+# These rules drive the entire browse-by-section UI, so a false positive
+# misfiles a document permanently. The previous implementation used bare
+# substring tests, and `"ct" in hint` matched "a-ct", "produ-ct", "pra-ct-ice"
+# and "prote-ct-ion" — so most documents were classified "clinical-trials".
+#
+# Note we cannot use \b: these match filenames and B2 keys, where tokens are
+# separated by `-`, `_`, `.`, `/` and spaces, and \b treats `_` as a word
+# character (so \btrial\b would not match "clinical_trial"). These lookarounds
+# treat any non-alphanumeric as a token separator instead.
+_L = r"(?<![a-z0-9])"   # left token boundary
+_R = r"(?![a-z0-9])"    # right token boundary
+
+# Order matters: first match wins, preserving the original if/elif priority.
+SECTION_RULES: list[tuple[str, re.Pattern[str]]] = [
+    ("guidance-documents", re.compile(
+        # Bounded `act` makes the old `and "fact" not in hint` guard unnecessary,
+        # and also stops "practice", "compact", "enact" from matching.
+        rf"{_L}guidance|{_L}guideline|{_L}rules?{_R}|{_L}acts?{_R}"
+    )),
+    ("clinical-trials", re.compile(
+        # `ct` needs BOTH boundaries — this is the token in CDSCO codes like
+        # "CT-01". Left boundary also keeps "trial" off "industrial".
+        rf"{_L}trials?{_R}|{_L}clinical|{_L}ct{_R}"
+    )),
+    ("medical-devices", re.compile(
+        rf"{_L}devices?{_R}|{_L}diagnostic"
+    )),
+    ("drug-approvals", re.compile(
+        # `auth` is a prefix on purpose: authorisation / authorization.
+        rf"{_L}approval|{_L}auth|{_L}clearance|{_L}new[-_ ]?drug"
+    )),
+    ("compliance-enforcement", re.compile(
+        rf"{_L}warning|{_L}inspection|{_L}banned{_R}|{_L}enforcement"
+    )),
+    ("cosmetics", re.compile(rf"{_L}cosmetic")),
+    ("biologicals-vaccines", re.compile(
+        rf"{_L}biolog|{_L}vaccine|{_L}blood{_R}"
+    )),
+    ("notifications-advisories", re.compile(
+        # `advisor` covers advisory / advisories.
+        rf"{_L}notif|{_L}advisor"
+    )),
+]
+
+DEFAULT_SECTION = "general"
+
+
+def classify_section(hint: str) -> str:
+    """
+    Map a document name + B2 key into a browse category slug.
+
+    Args:
+        hint: lowercase-able string combining doc_name and b2_key.
+
+    Returns:
+        One of the SECTION_RULES slugs, or "general" if nothing matches.
+    """
+    hint = (hint or "").lower()
+    for section, pattern in SECTION_RULES:
+        if pattern.search(hint):
+            return section
+    return DEFAULT_SECTION
 
 
 def get_b2_client():
@@ -150,24 +226,7 @@ def process_document(doc: dict, dry_run: bool = False) -> dict:
     
     # Advanced Heuristics (inspecting source path + doc_name for better hinting)
     combined_hint = (doc_name + " " + b2_key).lower()
-
-    section = "general"
-    if "guidance" in combined_hint or "guideline" in combined_hint or "rule" in combined_hint or ("act" in combined_hint and "fact" not in combined_hint):
-        section = "guidance-documents"
-    elif "trial" in combined_hint or "ct" in combined_hint or "clinical" in combined_hint:
-        section = "clinical-trials"
-    elif "device" in combined_hint or "diagnostics" in combined_hint:
-        section = "medical-devices"
-    elif "approval" in combined_hint or "auth" in combined_hint or "clearance" in combined_hint or "new-drug" in combined_hint:
-        section = "drug-approvals"
-    elif "warning" in combined_hint or "inspection" in combined_hint or "banned" in combined_hint or "enforcement" in combined_hint:
-        section = "compliance-enforcement"
-    elif "cosmetic" in combined_hint:
-        section = "cosmetics"
-    elif "biolog" in combined_hint or "vaccine" in combined_hint or "blood" in combined_hint:
-        section = "biologicals-vaccines"
-    elif "notif" in combined_hint or "advisory" in combined_hint:
-        section = "notifications-advisories"
+    section = classify_section(combined_hint)
 
     metadata = {
         "source":     doc["source"],
@@ -186,7 +245,6 @@ def process_document(doc: dict, dry_run: bool = False) -> dict:
     if doc_already_ingested(b2_key):
         if not dry_run:
             try:
-                from vector_store import get_client, save_doc_metadata
                 client = get_client()
                 if hasattr(client, 'table'):
                     meta_check = client.table("doc_metadata").select("doc_id").eq("b2_key", b2_key).limit(1).execute()
@@ -224,15 +282,27 @@ def process_document(doc: dict, dry_run: bool = False) -> dict:
     saved = save_chunks(chunks)
     
     # Step 5 - Save Metadata explicitly to V2 Table
+    #
+    # get_client / save_doc_metadata are imported at module scope. They used to be
+    # re-imported here as `from vector_store import ...` — a bare sibling import,
+    # which resolves only when pipeline/ itself is on sys.path. Under
+    # `python -m pipeline.ingestor` it raised ModuleNotFoundError from OUTSIDE the
+    # try below, so run_pipeline's per-document handler caught it: the chunks were
+    # already saved, but doc_metadata never was, and the final summary reported
+    # "Chunks saved: 0" while the table held thousands. Nothing here is optional —
+    # without a doc_metadata row the document cannot be browsed or opened.
     if saved > 0 and not dry_run:
-        from vector_store import get_client, save_doc_metadata
         try:
             client = get_client()
             meta_check = client.table("doc_metadata").select("doc_id").eq("b2_key", b2_key).limit(1).execute()
             if len(meta_check.data) == 0:
-                save_doc_metadata(metadata)
+                # save_doc_metadata swallows its own exceptions and returns False,
+                # so the return value is the only signal that it failed.
+                if not save_doc_metadata(metadata):
+                    print(f"  WARNING: doc_metadata write failed for {b2_key} — "
+                          f"this document will not appear in the browse UI")
         except Exception:
-            pass
+            log.exception("doc_metadata step failed for %s", b2_key)
         
     print(f"  Saved {saved} chunks to Supabase pgvector")
 

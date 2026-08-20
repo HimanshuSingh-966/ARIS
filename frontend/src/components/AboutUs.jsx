@@ -1,5 +1,4 @@
-import React from 'react';
-import { Info, Users, Shield, Target } from 'lucide-react';
+import { Users, Shield, Target } from 'lucide-react';
 
 function AboutUs() {
   return (
@@ -43,7 +42,7 @@ function AboutUs() {
         <section className="text-center bg-[#0f766e]/5 rounded-3xl p-12 border border-[#0f766e]/10">
           <h2 className="text-3xl font-bold text-[#0f172a] mb-6">Transforming Compliance</h2>
           <p className="text-[#334155] text-lg mb-8 max-w-2xl mx-auto">
-            By integrating RAG (Retrieval-Augmented Generation) technology, we provide an "Ask the AI" interface that understands the context of thousands of regulatory documents.
+            By integrating RAG (Retrieval-Augmented Generation) technology, we provide an &quot;Ask the AI&quot; interface that understands the context of thousands of regulatory documents.
           </p>
           <div className="flex justify-center gap-4">
             <div className="flex items-center gap-2 text-[#0f766e] font-bold">

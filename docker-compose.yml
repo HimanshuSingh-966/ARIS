@@ -1,4 +1,5 @@
-version: '3.8'
+# The `version: '3.8'` key that used to head this file has been ignored by Compose
+# v2 since 2020; all it did was print a deprecation warning on every invocation.
 
 services:
   api:
@@ -8,10 +9,19 @@ services:
     container_name: pharma_rag_api
     ports:
       - "8000:8000"
+    # Deliberately left REQUIRED (Compose's default). `required: false` would let
+    # the stack start without .env, and the backend fails closed — so every route
+    # would answer 503 and look like a broken deploy instead of a missing file.
+    # "env file .env not found" at startup is the better failure. `make docker-up`
+    # goes further and checks the individual variables before Compose runs.
     env_file:
       - .env
     volumes:
       - .:/app
+    # The image's own CMD is the production one, without --reload. The source is
+    # bind-mounted just above for local work, so the reloader belongs here in the
+    # dev override rather than baked into the image.
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     networks:
       - pharma_network
 
@@ -24,10 +34,20 @@ services:
       - "3000:3000"
     env_file:
       - .env
+    environment:
+      # vite.config.js proxies /api to localhost:8000 by default, which inside this
+      # container resolves to the container itself — every API call would have been
+      # refused. On the compose network the backend answers to its service name.
+      - ARIS_API_PROXY_TARGET=http://api:8000
+      # Bind mounts from a Windows or macOS host do not deliver inotify events to
+      # the container, so vite's watcher sees nothing and HMR silently stops working
+      # while the dev server still looks healthy.
+      - CHOKIDAR_USEPOLLING=true
     volumes:
       # Mount the code for live-reloading (HMR)
       - ./frontend:/app
-      # Create an anonymous volume to prevent local node_modules from conflicting
+      # Anonymous volume so the image's linux node_modules is not shadowed by the
+      # host's — host esbuild/rollup binaries cannot execute in alpine.
       - /app/node_modules
     networks:
       - pharma_network

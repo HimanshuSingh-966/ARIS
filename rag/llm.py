@@ -1,6 +1,6 @@
 """
 rag/llm.py
-LLM client — uses Google AI Studio (Gemini).
+LLM client — Google AI Studio (Gemini) with a Groq fallback.
 Default model: gemini-2.0-flash
 """
 
@@ -9,14 +9,45 @@ import logging
 
 log = logging.getLogger(__name__)
 
+# Substrings that mark a Gemini failure as *transient or capacity-related*, i.e.
+# the only cases where silently answering from a different model is defensible.
+# Matched against the exception text because google.api_core exception types vary
+# across transport backends (grpc vs rest) and versions.
+_RETRYABLE_MARKERS = (
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+    "quota",
+    "rate limit",
+    "ratelimit",
+    "resource has been exhausted",
+    "resource_exhausted",
+    "deadline exceeded",
+    "unavailable",
+    "internal error",
+    "overloaded",
+    "timeout",
+    "timed out",
+    "connection",
+)
 
-def get_provider() -> str:
-    return "gemini"
+
+def _is_retryable(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(marker in text for marker in _RETRYABLE_MARKERS)
 
 
 def generate(messages: list[dict], max_tokens: int = 2048) -> str:
     """
     Send messages to Gemini and return response text.
+
+    Falls back to Groq only for quota / rate-limit / 5xx / network failures.
+    Configuration and programming errors (a missing GEMINI_API_KEY, a bad model
+    name, a malformed prompt) are re-raised: falling back on those silently
+    changed which model answered every single request, so the deployment looked
+    healthy while never once using the model it was configured for.
 
     Args:
         messages   : list of {role, content} dicts
@@ -27,7 +58,17 @@ def generate(messages: list[dict], max_tokens: int = 2048) -> str:
     """
     try:
         import google.generativeai as genai
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    except ImportError:
+        log.error("google-generativeai not installed — run: pip install google-generativeai")
+        raise
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        # Not retryable, and not something Groq should paper over.
+        raise RuntimeError("GEMINI_API_KEY is not set in the environment.")
+
+    try:
+        genai.configure(api_key=api_key)
 
         # Use model from env — defaults to gemini-2.0-flash
         model_name = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
@@ -59,12 +100,13 @@ def generate(messages: list[dict], max_tokens: int = 2048) -> str:
         )
         return response.text
 
-    except ImportError:
-        log.error("google-generativeai not installed — run: pip install google-generativeai")
-        raise
     except Exception as e:
-        log.warning(f"Gemini error ({e}). Falling back to Groq...")
+        if not _is_retryable(e):
+            log.exception("Gemini failed with a non-retryable error — not falling back")
+            raise
+        log.warning("Gemini unavailable (%s). Falling back to Groq...", e)
         return _generate_groq_fallback(messages, max_tokens)
+
 
 def _generate_groq_fallback(messages: list[dict], max_tokens: int = 2048) -> str:
     """Fallback to Groq LLM if Gemini hits quota/fails."""
@@ -75,16 +117,16 @@ def _generate_groq_fallback(messages: list[dict], max_tokens: int = 2048) -> str
             raise ValueError("GROQ_API_KEY is not set in environment.")
 
         client = Groq(api_key=groq_api_key)
-        
+
         # Format messages for Groq API (role must be user, assistant, system)
         groq_messages = []
         for m in messages:
             role = m["role"]
             if role == "model": role = "assistant"
             groq_messages.append({"role": role, "content": m["content"]})
-            
+
         model_name = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
-        
+
         completion = client.chat.completions.create(
             model=model_name,
             messages=groq_messages,
@@ -96,5 +138,7 @@ def _generate_groq_fallback(messages: list[dict], max_tokens: int = 2048) -> str
         log.error("groq not installed — run: pip install groq")
         raise
     except Exception as e:
-        log.error(f"Groq fallback failed: {e}")
-        raise RuntimeError(f"Both Gemini and Groq failed. Groq error: {str(e)}")
+        # The message stays internal: api/routes/chat.py logs the trace and
+        # answers a generic 502, so no provider detail reaches the client.
+        log.error("Groq fallback failed: %s", e)
+        raise RuntimeError(f"Both Gemini and Groq failed. Groq error: {e}")

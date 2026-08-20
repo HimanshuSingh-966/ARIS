@@ -23,6 +23,7 @@ wheels/
 venv/
 .venv/
 .env
+.pytest_cache/
 
 # Node / Frontend
 frontend/node_modules/
@@ -52,3 +53,13 @@ docker-compose.override.yml
 # Logs
 *.log
 logs/
+
+# Source corpus — the master regulatory PDFs (data/master_pdfs/, ~18MB).
+#
+# They are build-time input to pipeline/extract_forms_from_master_pdfs.py and are
+# never read by the running application, so they do not belong in the repo. Keep
+# them on disk; the extractor exits non-zero with instructions if they are absent.
+#
+# A pattern with no slash matches at any depth, so this covers data/master_pdfs/
+# as well as the repo root.
+*.pdf

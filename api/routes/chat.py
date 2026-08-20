@@ -3,12 +3,8 @@ api/routes/chat.py
 POST /chat — Main RAG query endpoint.
 """
 
-import sys
-import os
 import logging
-from fastapi import APIRouter, Depends
-
-# Project root is in sys.path when running via uvicorn from root
+from fastapi import APIRouter, HTTPException
 
 from api.models import ChatRequest, ChatResponse
 
@@ -43,11 +39,16 @@ async def chat(req: ChatRequest):
             query   = result["query"],
         )
 
-    except Exception as e:
-        log.error(f"[API] /chat error: {e}")
-        return ChatResponse(
-            answer  = f"Sorry, an error occurred: {str(e)}",
-            sources = [],
-            forms   = [],
-            query   = req.query,
+    except HTTPException:
+        raise
+
+    except Exception:
+        # This used to return HTTP 200 with the exception text inside `answer`.
+        # Two problems with that: the frontend's `if (!response.ok)` branch could
+        # never fire, so an outage rendered as an ordinary assistant message, and
+        # str(e) put internal detail (keys, hostnames, SQL) in a public response.
+        log.exception("[API] /chat failed for query=%r", req.query[:200])
+        raise HTTPException(
+            status_code=502,
+            detail="The assistant is temporarily unavailable. Please try again.",
         )

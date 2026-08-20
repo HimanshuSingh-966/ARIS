@@ -98,9 +98,12 @@ def save_chunks(chunks: list[dict[str, Any]]) -> int:
             get_client().table("documents").insert(batch).execute()
             saved += len(batch)
         return saved
-    except Exception as e:
-        log.error(f"save_chunks error: {e}")
-        return 0
+    except Exception:
+        # Return what actually landed rather than 0: the caller reports this count,
+        # and claiming zero after three successful batches makes a partial failure
+        # look like a total one (or like a no-op re-run).
+        log.exception("save_chunks failed after %d/%d rows", saved, len(rows))
+        return saved
 
 def save_doc_metadata(meta: dict[str, Any]) -> bool:
     """Save document structural metadata explicitly for the V2 UI dashboard."""

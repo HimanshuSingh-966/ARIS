@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Send, Globe2, FileText, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { Send, Loader2 } from 'lucide-react';
 
 function InputArea({ onSend, isLoading }) {
   const [text, setText] = useState('');
@@ -12,8 +12,6 @@ function InputArea({ onSend, isLoading }) {
       setText('');
     }
   };
-
-  const currentFilters = [country, source].filter(Boolean).join(' • ');
 
   return (
     <div className="w-full relative mt-auto px-4 md:px-0 z-30 animate-fade-up">

@@ -1,0 +1,18 @@
+# node_modules first and foremost: `COPY . .` would drop host-platform binaries on
+# top of the `npm ci` layer, and esbuild/rollup native bindings do not survive the
+# trip from Windows to alpine.
+node_modules
+dist
+.vite
+
+.git
+.gitignore
+
+# Secrets come from docker-compose's env_file at runtime, never a build layer.
+.env
+.env.*
+!.env.example
+
+npm-debug.log*
+yarn-error.log*
+.DS_Store

@@ -13,10 +13,25 @@
   
   --animate-fade-up: fadeUp 0.5s ease-out forwards;
   --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  
+  /* fade-in (FormsPage results grid) and fade-right (AgencyDetail header) were
+     used in markup but never defined, so both classes silently did nothing.
+     Tailwind emits no warning for an unknown utility — it just produces no rule. */
+  --animate-fade-in: fadeIn 0.4s ease-out forwards;
+  --animate-fade-right: fadeRight 0.5s ease-out forwards;
+
   @keyframes fadeUp {
     0% { opacity: 0; transform: translateY(10px); }
     100% { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes fadeIn {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+
+  @keyframes fadeRight {
+    0% { opacity: 0; transform: translateX(-12px); }
+    100% { opacity: 1; transform: translateX(0); }
   }
 }
 

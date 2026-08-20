@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar.jsx';
 import Hero from './components/Hero.jsx';
@@ -13,7 +13,7 @@ import AboutUs from './components/AboutUs.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
 
 function App() {
-  const [isChatOpen, setIsChatOpen] = React.useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   return (
     <div className="flex flex-col h-screen bg-background text-white overflow-hidden bg-mesh relative">
@@ -32,10 +32,9 @@ function App() {
       </div>
 
       {/* Global AI Assistant Overlay */}
-      <ChatPanel 
-        isOpen={isChatOpen} 
-        onClose={() => setIsChatOpen(false)} 
-        docId="Global Mode"
+      <ChatPanel
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
       />
     </div>
   );

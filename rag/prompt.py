@@ -5,6 +5,7 @@ Always instructs LLM to cite sources and never hallucinate.
 """
 
 from typing import Any
+import re
 
 SYSTEM_PROMPT = """You are an expert pharmaceutical regulatory affairs assistant specializing in regulations for India (CDSCO), USA (FDA), and Europe (EMA).
 
@@ -51,7 +52,10 @@ def build_prompt(
 
         header = f"[Document {i}: {doc_name} | {source} | {country_name}"
         if section:
-            header += f" | Section: {section}"
+            # This is the heading detected inside the document (chunker.detect_section),
+            # not the category slug in section_tag. Label it accordingly so the model
+            # doesn't conflate the two.
+            header += f" | Heading: {section}"
         header += "]"
 
         context_parts.append(f"{header}\n{content}")
@@ -76,31 +80,53 @@ Please provide a comprehensive answer based on the above context."""
 def build_sources(chunks: list[dict[str, Any]]) -> list[dict]:
     """
     Build source citation list for API response.
+
+    Includes doc_id so the frontend can link citations at the streaming proxy
+    (/api/v1/documents/{doc_id}/stream) instead of guessing a public bucket URL.
     """
     seen    = set()
     sources = []
     for chunk in chunks:
         key = chunk.get("b2_key", "")
-        if key not in seen:
-            seen.add(key)
+        doc_id = chunk.get("doc_id", "")
+        # Prefer doc_id for dedup: if b2_key is ever blank, keying on it alone
+        # would collapse every such chunk into a single citation.
+        dedup_key = doc_id or key
+        if dedup_key not in seen:
+            seen.add(dedup_key)
             sources.append({
                 "doc_name":   chunk.get("doc_name", ""),
                 "source":     chunk.get("source", "").upper(),
                 "country":    chunk.get("country", ""),
                 "section":    chunk.get("section", ""),
+                "doc_id":     doc_id,
                 "b2_key":     key,
                 "similarity": round(chunk.get("similarity", 0), 3),
             })
     return sources
 
 
+# Word-bounded so the substring "form" inside "information", "platform",
+# "performance", "reform", "transform" and "conform" no longer triggers form
+# retrieval — all of which are common in regulatory text, making the old
+# substring check fire on a large share of ordinary questions.
+_FORM_QUERY_RE = re.compile(
+    r"""
+      \bforms?\b                    # form, forms — also covers "application form",
+                                    # "form 44", "nda form", "give me the form"
+    | \bdownload(?:s|ing|able)?\b
+    | \btemplates?\b
+    | \bct-\s*\d+                   # CDSCO clinical-trial form codes, e.g. CT-01
+                                    # \b keeps this off "act-1", "product-1"
+    | \bwhere\s+can\s+i\s+get\b
+    | \bapplication\s+document\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
 def is_form_query(query: str) -> bool:
     """Detect if user is asking for a downloadable form."""
-    keywords = [
-        "form", "download", "application form", "template",
-        "form 44", "form 8", "form 40", "ct-", "nda form",
-        "anda form", "ind form", "give me the form",
-        "where can i get", "application document"
-    ]
-    query_lower = query.lower()
-    return any(kw in query_lower for kw in keywords)
+    if not query:
+        return False
+    return _FORM_QUERY_RE.search(query) is not None
