@@ -1,7 +1,6 @@
 {
   "rewrites": [
     {
-      "comment": "Everything except /api/* falls through to the SPA. /api/* is served by the Edge function at api/[...path].js, which injects the API key and forwards to ARIS_API_ORIGIN. The backend URL is deliberately not in this file any more - it lives in Vercel env vars so it never reaches the browser or the repo.",
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
