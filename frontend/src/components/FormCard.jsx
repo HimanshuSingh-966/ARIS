@@ -1,4 +1,3 @@
-import React from 'react';
 import { Download, FileText, ShieldCheck } from 'lucide-react';
 
 function FormCard({ form, onDownload }) {
@@ -43,9 +42,15 @@ function FormCard({ form, onDownload }) {
       </div>
 
       <div className="mt-auto pt-4 border-t border-[#0f766e]/10">
-        <button 
-          onClick={() => onDownload(form.id)}
-          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-white border border-[#0f766e]/20 text-sm font-bold text-[#0f766e] hover:bg-[#0f766e] hover:text-white hover:border-[#0f766e] transition-all shadow-sm group-hover:shadow-md active:scale-[0.98]"
+        <button
+          type="button"
+          // Optional call: MessageBubble renders this card for forms attached to a
+          // chat answer, and passing no handler used to throw a TypeError on click.
+          // The prop is now genuinely optional, and the button hides itself rather
+          // than offering a download that cannot happen.
+          onClick={() => onDownload?.(form.id)}
+          disabled={!onDownload}
+          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-white border border-[#0f766e]/20 text-sm font-bold text-[#0f766e] hover:bg-[#0f766e] hover:text-white hover:border-[#0f766e] transition-all shadow-sm group-hover:shadow-md active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-[#0f766e]"
         >
           <Download className="w-4 h-4 opacity-70 group-hover:-translate-y-0.5 transition-transform" />
           Download PDF

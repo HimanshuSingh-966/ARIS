@@ -1,11 +1,23 @@
-import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import SourceCitations from './SourceCitations';
 import FormCard from './FormCard';
 import clsx from 'clsx';
+import { downloadForm } from '../lib/api';
 
 function MessageBubble({ message }) {
   const isUser = message.role === 'user';
+
+  // "Give me the form" is one of the flows this app exists for, and the cards
+  // attached to an answer were rendered without a download handler — so clicking
+  // one threw instead of downloading. Same helper FormsPage uses.
+  const handleDownload = async (formId) => {
+    try {
+      await downloadForm(formId);
+    } catch (err) {
+      console.error('Download error:', err);
+      alert('Failed to generate download link. Please try later.');
+    }
+  };
 
   return (
     <div className={clsx("flex w-full animate-fade-up", isUser ? "justify-end" : "justify-start")}>
@@ -33,7 +45,11 @@ function MessageBubble({ message }) {
                 <h4 className="text-[10px] uppercase tracking-[0.2em] text-[#0f766e] font-bold mb-1 opacity-80">Relevant Forms</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {message.forms.map((form, i) => (
-                    <FormCard key={i} form={form} />
+                    <FormCard
+                      key={form.id ?? i}
+                      form={form}
+                      onDownload={handleDownload}
+                    />
                   ))}
                 </div>
               </div>

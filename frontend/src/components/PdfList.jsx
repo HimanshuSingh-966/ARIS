@@ -1,37 +1,58 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Search, Filter, FileText, Calendar, HardDrive, ArrowRight } from 'lucide-react';
+import { api } from '../lib/api';
 
 
 function PdfList() {
   const { source, section } = useParams();
   const [searchQuery, setSearchQuery] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [sortBy, setSortBy] = useState('newest');
 
   const [documents, setDocuments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  // Debounce the box into the value actually sent to the API. Filtering used to run
+  // client-side over whatever page had been fetched, so it could never match a
+  // document beyond the endpoint's 50-row limit — searching a large section
+  // silently missed results that were there.
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
+    if (!source || !section) return;
+
+    let active = true;
     const fetchDocuments = async () => {
       setIsLoading(true);
+      setError('');
       try {
-        const res = await fetch(`/api/v1/sources/${source}/sections/${section}/documents?sort=${sortBy}`);
-        if (res.ok) {
-          const data = await res.json();
-          setDocuments(data.documents || []);
-        } else {
-          console.error('Failed to fetch documents');
-        }
+        const { data } = await api.get(
+          `/sources/${encodeURIComponent(source)}/sections/${encodeURIComponent(section)}/documents`,
+          { params: { sort: sortBy, ...(appliedSearch ? { search: appliedSearch } : {}) } }
+        );
+        if (!active) return;
+        setDocuments(data.documents || []);
       } catch (err) {
+        if (!active) return;
         console.error('Error fetching documents:', err);
+        // Previously this only logged, leaving the last successful results on
+        // screen — a failed request was indistinguishable from one that returned
+        // the same documents.
+        setDocuments([]);
+        setError('Could not load documents. Please try again.');
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     };
-    if (source && section) {
-      fetchDocuments();
-    }
-  }, [source, section, sortBy]);
+
+    fetchDocuments();
+    return () => { active = false; };
+  }, [source, section, sortBy, appliedSearch]);
 
   // Utility to format source/section nicely
   const formatName = (str) => {
@@ -65,9 +86,9 @@ function PdfList() {
         <div className="flex flex-col sm:flex-row gap-4 mb-8">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#0f766e]" />
-            <input 
-              type="text" 
-              placeholder={`Filter ${isLoading ? '...' : documents.length} documents...`} 
+            <input
+              type="text"
+              placeholder={`Search ${formatName(section)} documents...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-white/60 border border-[#0f766e]/20 rounded-xl py-3 pl-12 pr-4 text-[#0f172a] placeholder-[#0f766e]/60 focus:outline-none focus:border-[#0f766e]/50 transition-colors shadow-sm"
@@ -89,17 +110,22 @@ function PdfList() {
           </div>
         </div>
 
-        {/* PDF Grid */}
+        {/* PDF Grid — no client-side filtering: `search` is applied by the API so
+            results are drawn from the whole section, not just the fetched page. */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {isLoading ? (
             <div className="col-span-full py-20 flex justify-center items-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0f766e]"></div>
             </div>
-          ) : documents.filter(p => (p.doc_name || '').toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+          ) : error ? (
+            <div className="col-span-full py-20 text-center text-red-700 font-medium border border-dashed border-red-300 rounded-2xl bg-red-50/60">
+              {error}
+            </div>
+          ) : documents.length === 0 ? (
             <div className="col-span-full py-20 text-center text-[#334155] font-medium border border-dashed border-[#0f766e]/20 rounded-2xl bg-white/40">
               No documents matched your search criteria.
             </div>
-          ) : documents.filter(p => (p.doc_name || '').toLowerCase().includes(searchQuery.toLowerCase())).map((doc) => (
+          ) : documents.map((doc) => (
             <Link 
               key={doc.doc_id}
               to={`/explore/${source}/${section}/${doc.doc_id}`}

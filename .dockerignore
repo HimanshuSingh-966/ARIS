@@ -1,0 +1,50 @@
+# The API image needs the Python source and requirements.txt. Everything below was
+# being swept into the build context by `COPY . .`: the three master PDFs are ~18MB
+# on their own, and .git carries every past revision of them.
+
+.git
+.gitignore
+.github
+
+# Local virtualenvs hold Windows/macOS binaries that cannot execute in the image.
+.venv
+venv
+env
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets arrive at runtime through env_file / -e. A .env copied into a layer stays
+# in the image history even if a later layer deletes it.
+.env
+.env.*
+!.env.example
+
+# Source corpus: ingested once from a workstation by pipeline/, never read by the
+# running API.
+#
+# `**/` is load-bearing. Unlike .gitignore, a bare `*.pdf` in .dockerignore matches
+# only the ROOT of the build context — Docker uses filepath.Match semantics, where
+# `*` does not cross a `/`. Once these moved into data/master_pdfs/, the old
+# `*.pdf` stopped matching them and 18MB went straight back into the image.
+**/*.pdf
+data/
+
+# The frontend builds from its own context (./frontend in docker-compose.yml).
+frontend/
+
+# Tests and the one-off diagnostic scripts are not part of the served app.
+tests/
+scripts/
+.claude/
+
+# Docs and editor/tooling config.
+*.md
+docs/
+.vscode/
+.idea/
+pyrightconfig.json

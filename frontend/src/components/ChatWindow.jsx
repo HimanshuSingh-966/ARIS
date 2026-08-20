@@ -1,10 +1,13 @@
-import React from 'react';
 import MessageBubble from './MessageBubble';
 import { Microscope } from 'lucide-react';
 
 function ChatWindow({ messages, isLoading, messagesEndRef }) {
+  // This is the single scroller for the message list. ChatPanel used to wrap it in
+  // a second overflow-y-auto, giving two nested scrollers: scrollIntoView moved the
+  // inner one while the outer kept its own offset, so auto-scroll stopped short of
+  // the newest message. `hide-scrollbar` moved down here with the scroll.
   return (
-    <div className="flex-1 overflow-y-auto w-full pt-8 pb-4 space-y-6 scroll-smooth pr-2">
+    <div className="flex-1 min-h-0 overflow-y-auto hide-scrollbar w-full pt-8 pb-4 space-y-6 scroll-smooth pr-2">
       
       {messages.length === 0 && (
         <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50 animate-fade-up">

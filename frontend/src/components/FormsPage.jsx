@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Filter, Download, FileText, Loader2, AlertCircle, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Filter, FileText, Loader2, AlertCircle, X } from 'lucide-react';
 import FormCard from './FormCard';
-import axios from 'axios';
+import { api, downloadForm } from '../lib/api';
 
 const CATEGORIES = [
-  'All', 'Manufacturing', 'Import / Export', 'Clinical Trial', 
+  'All', 'Manufacturing', 'Import / Export', 'Clinical Trial',
   'Wholesale / Retail', 'Testing / Analysis', 'Blood Bank / Biologics',
   'Traditional Medicine', 'Cosmetics', 'Registration'
 ];
@@ -13,12 +13,19 @@ function FormsPage() {
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [forms, setForms] = useState([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
 
+  // Passes the active query: this used to call fetchForms() with no argument, so
+  // picking a category silently dropped the search while the input still showed
+  // the text — the highlighted chip and the visible results disagreed.
   useEffect(() => {
-    fetchForms();
+    fetchForms(query);
+    // Intentionally keyed on the category alone. `query` is applied on submit, not
+    // on every keystroke, and is read here from the current render's closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory]);
 
   const fetchForms = async (searchQuery = '') => {
@@ -28,12 +35,17 @@ function FormsPage() {
       const params = {};
       if (searchQuery) params.q = searchQuery;
       if (selectedCategory !== 'All') params.type = selectedCategory;
-      
-      const response = await axios.get('/api/v1/forms', { params });
+
+      const response = await api.get('/forms', { params });
       setForms(response.data.forms || []);
+      // `total` is the full filtered match count; forms is only the page. Falling
+      // back to the page length keeps the count honest if the field is absent.
+      setTotal(response.data.total ?? (response.data.forms || []).length);
     } catch (err) {
       console.error('Fetch error:', err);
       setError('Unable to load forms. Please try again.');
+      setForms([]);
+      setTotal(0);
     } finally {
       setLoading(false);
       setIsSearching(false);
@@ -48,9 +60,9 @@ function FormsPage() {
 
   const handleDownload = async (formId) => {
     try {
-      const res = await axios.get(`/api/v1/forms/${formId}/download`);
-      window.open(res.data.download_url, '_blank');
+      await downloadForm(formId);
     } catch (err) {
+      console.error('Download error:', err);
       alert('Failed to generate download link. Please try later.');
     }
   };
@@ -69,7 +81,7 @@ function FormsPage() {
             Regulatory Forms Intelligence
           </h1>
           <p className="text-fluid-subhero text-[#ccfbf1] font-medium mb-10 opacity-90 max-w-2xl mx-auto leading-tight">
-            Search 80+ official forms across India's Drug Rules with natural language intent.
+            Search 80+ official forms across India&apos;s Drug Rules with natural language intent.
           </p>
 
           <form onSubmit={handleSearch} className="relative group max-w-2xl mx-auto">
@@ -130,9 +142,16 @@ function FormsPage() {
             <h2 className="text-xl md:text-2xl font-extrabold text-[#0f172a] flex items-center">
               {selectedCategory === 'All' ? 'Official Forms' : selectedCategory}
               <span className="ml-3 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-100 px-3 py-1 rounded-full uppercase tracking-tighter">
-                {forms.length} Results
+                {total} Result{total === 1 ? '' : 's'}
               </span>
             </h2>
+            {/* The API returns a page, not the whole match set. Saying so is the
+                point of returning a real total instead of the page length. */}
+            {total > forms.length && (
+              <p className="text-xs text-slate-500 font-medium mt-1">
+                Showing the first {forms.length}. Narrow the search to see more.
+              </p>
+            )}
           </div>
           {query && (
             <button 
@@ -164,7 +183,7 @@ function FormsPage() {
             <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
             <h3 className="text-xl font-bold text-slate-900 mb-2">No matching forms found</h3>
             <p className="text-slate-500 max-w-sm mx-auto">
-              We couldn't find any forms matching your current search or filter. Try using broader keywords like "licence" or "manufacturing".
+              We couldn&apos;t find any forms matching your current search or filter. Try using broader keywords like &quot;licence&quot; or &quot;manufacturing&quot;.
             </p>
           </div>
         ) : (

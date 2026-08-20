@@ -52,13 +52,23 @@ def split_into_chunks(text: str, metadata: dict[str, Any]) -> list[dict[str, Any
 
     Args:
         text     : cleaned extracted text
-        metadata : {source, country, doc_name, b2_key, source_url}
+        metadata : {source, country, doc_name, doc_id, section_tag, b2_key, source_url}
+                   doc_id and section_tag are required for doc-scoped retrieval and
+                   browse-by-section; a missing doc_id is warned about rather than
+                   stored as '' silently.
 
     Returns:
         list of chunk dicts ready for embedding
     """
     if not text or not text.strip():
         return []
+
+    if not metadata.get("doc_id"):
+        log.warning(
+            "No doc_id in metadata for '%s' - chunks will not be retrievable by "
+            "document. Caller should set it (see ingestor.process_document).",
+            metadata.get("doc_name", "<unknown>"),
+        )
 
     chunk_chars   = CHUNK_SIZE    * CHARS_PER_TOK   # ~2000 chars
     overlap_chars = CHUNK_OVERLAP * CHARS_PER_TOK   # ~200 chars
@@ -101,7 +111,15 @@ def split_into_chunks(text: str, metadata: dict[str, Any]) -> list[dict[str, Any
             "source":     metadata.get("source", ""),
             "country":    metadata.get("country", ""),
             "doc_name":   metadata.get("doc_name", ""),
+            # `section` is the heading detected inside the document; `section_tag`
+            # is the category slug assigned by the ingestor. Two different things
+            # that happen to live in adjacent columns — keep them separate.
             "section":    section,
+            "section_tag": metadata.get("section_tag", ""),
+            # Must be propagated: vector_store.save_chunks writes doc_id straight
+            # into the documents table, and every doc-scoped query filters on it.
+            # Omitting it here silently stores '' and breaks per-document chat.
+            "doc_id":     metadata.get("doc_id", ""),
             "b2_key":     metadata.get("b2_key", ""),
             "source_url": metadata.get("source_url", ""),
             "char_start": start,

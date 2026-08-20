@@ -1,4 +1,4 @@
-import { Compass, FileText, Search, Download, Info, MessageSquare, Menu, X } from 'lucide-react';
+import { Download, Info, MessageSquare, Menu, X } from 'lucide-react';
 import clsx from 'clsx';
 import { Link, useLocation } from 'react-router-dom';
 import { useState } from 'react';

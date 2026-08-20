@@ -1,28 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, MessageSquarePlus, Download } from 'lucide-react';
 import ChatPanel from './ChatPanel';
+import { api, documentStreamUrl } from '../lib/api';
 
 function PdfViewer() {
   const { source, section, docId } = useParams();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState('');
+  const [docName, setDocName] = useState('');
 
   // Format display strings
   const formattedSource = source?.toUpperCase();
   const formattedSection = section?.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  const formattedDocId = docId?.replace('.pdf', '') || 'Document';
+  // The route param is an md5 doc_id, so the old `docId.replace('.pdf', '')` never
+  // matched anything and the breadcrumb showed a 32-character hash. /url returns
+  // the real name; the hash stays as the fallback until that resolves.
+  const displayName = docName || docId || 'Document';
 
   // The iframe points directly at the FastAPI streaming proxy — no CORS issues!
-  const streamUrl = docId ? `/api/v1/documents/${docId}/stream` : '';
+  const streamUrl = docId ? documentStreamUrl(docId) : '';
 
-  // Separately fetch a presigned URL just for the download button
+  // Presigned URL for the download button, plus the document's display name.
   useEffect(() => {
+    // Clear first: without this, navigating between documents left the previous
+    // one's name in the breadcrumb and its presigned URL on the download button.
+    setDownloadUrl('');
+    setDocName('');
     if (!docId) return;
-    fetch(`/api/v1/documents/${docId}/url`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => data?.url && setDownloadUrl(data.url))
+
+    let active = true;
+    api.get(`/documents/${encodeURIComponent(docId)}/url`)
+      .then(({ data }) => {
+        if (!active) return;
+        if (data?.url) setDownloadUrl(data.url);
+        if (data?.doc_name) setDocName(data.doc_name);
+      })
       .catch(() => {});
+
+    return () => { active = false; };
   }, [docId]);
 
   return (
@@ -42,15 +58,19 @@ function PdfViewer() {
             <span className="text-white/20">/</span>
             <span>{formattedSection}</span>
             <span className="text-white/20">/</span>
-            <span className="text-white truncate max-w-[200px]">{formattedDocId}</span>
+            <span className="text-white truncate max-w-[200px]" title={displayName}>{displayName}</span>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <button 
-            onClick={() => downloadUrl && window.open(downloadUrl, '_blank')}
-            title="Download PDF"
-            className="hidden sm:flex items-center justify-center p-2.5 rounded-lg text-muted hover:text-white hover:bg-white/5 transition-colors border border-transparent hover:border-white/10"
+          <button
+            type="button"
+            // Disabled until the presigned URL resolves: the click used to be a
+            // silent no-op while the button still looked active.
+            onClick={() => window.open(downloadUrl, '_blank', 'noopener,noreferrer')}
+            disabled={!downloadUrl}
+            title={downloadUrl ? 'Download PDF' : 'Preparing download…'}
+            className="hidden sm:flex items-center justify-center p-2.5 rounded-lg text-muted hover:text-white hover:bg-white/5 transition-colors border border-transparent hover:border-white/10 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted"
           >
             <Download className="w-4 h-4" />
           </button>
@@ -74,11 +94,13 @@ function PdfViewer() {
             <iframe
               src={streamUrl}
               className="w-full h-full border-0 absolute inset-0"
-              title={formattedDocId}
+              title={displayName}
             />
           </div>
         ) : (
-          <div className="flex-1 w-full relative bg-white/5 flex items-center justify-center text-white/50 font-medium px-4 text-center">
+          // text-white/50 here was unreadable: bg-white/5 is near-transparent, so
+          // this sits on the mint page background, not on the header's dark chrome.
+          <div className="flex-1 w-full relative bg-white/5 flex items-center justify-center text-slate-700 font-medium px-4 text-center">
             No document selected.
           </div>
         )}
@@ -91,9 +113,12 @@ function PdfViewer() {
           />
         )}
 
-        {/* Slide-in Chat Panel */}
+        {/* Slide-in Chat Panel — docId is the raw route param because it is the
+            doc_metadata key the API filters on; docLabel carries the human-readable
+            name so the panel never has to display the hash. */}
         <ChatPanel
-          docId={formattedDocId}
+          docId={docId}
+          docLabel={docName}
           isOpen={isChatOpen}
           onClose={() => setIsChatOpen(false)}
         />

@@ -3,8 +3,10 @@ api/models.py
 Pydantic request/response models for all API endpoints.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
+
+from api import __version__
 
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
@@ -24,6 +26,9 @@ class SourceCitation(BaseModel):
     section:    str = ""
     b2_key:     str = ""
     similarity: float = 0.0
+    # Lets the frontend link a citation at /api/v1/documents/{doc_id}/stream
+    # instead of guessing a public Backblaze URL, which 403s on a private bucket.
+    doc_id:     str = ""
 
 
 class FormItem(BaseModel):
@@ -34,6 +39,21 @@ class FormItem(BaseModel):
     source:      Optional[str] = ""
     description: Optional[str] = ""
     b2_key:      Optional[str] = ""
+    # Both are read by the frontend (FormCard renders a source_pdf_year badge and
+    # FormsPage filters on category) but were never returned, so the badge was
+    # dead markup and the client had no way to show which category a hit was in.
+    form_type:       Optional[str] = ""
+    source_pdf_year: Optional[str] = ""
+
+    @field_validator("source_pdf_year", mode="before")
+    @classmethod
+    def _stringify_year(cls, v):
+        """
+        source_pdf_year is a year and may well be an integer column. Pydantic v2
+        does not coerce int -> str, so passing 2024 straight from the row would
+        raise a validation error and turn the whole forms list into a 500.
+        """
+        return "" if v is None else str(v)
 
 
 class ChatResponse(BaseModel):
@@ -60,4 +80,4 @@ class FormDownloadResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status:  str = "ok"
-    version: str = "1.0.0"
+    version: str = __version__

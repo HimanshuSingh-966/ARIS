@@ -1,33 +1,37 @@
-# Scraper
-requests==2.31.0
-boto3==1.34.0
-beautifulsoup4==4.12.3
-lxml==5.1.0
+# ── PDF extraction ────────────────────────────────────────────────────────────
+# pipeline/extractor.py and pipeline/extract_forms_from_master_pdfs.py
 pdfplumber==0.11.0
-pytesseract==0.3.10
 pypdf==4.2.0
-aiohttp==3.9.3
-aiofiles==23.2.1
+PyMuPDF                 # imported as `fitz` — extractor.py:67
+pytesseract==0.3.10     # OCR fallback for scanned pages; needs the tesseract binary
 Pillow==10.3.0
 
-# Pipeline
-langchain==0.2.0
-langchain-community==0.2.0
-PyMuPDF
+# ── Storage ───────────────────────────────────────────────────────────────────
+# Backblaze B2 over the S3-compatible API (api/deps.py, scripts/set_cors.py)
+boto3==1.34.0
 
-# Database
-psycopg2-binary==2.9.9
-pgvector==0.2.5
-sqlalchemy==2.0.30
-supabase
-
-# API
-fastapi==0.109.2
-uvicorn==0.27.1
-supabase==2.11.0
-httpx==0.27.2
-websockets>=13.0
-pdfplumber==0.11.0
+# ── Embeddings ────────────────────────────────────────────────────────────────
+# Local CPU inference: BAAI/bge-small-en-v1.5, 384-dim
 fastembed==0.5.1
+numpy==2.4.6            # was held at 1.26.4 by langchain's numpy<2; free now that it's gone
 
-# LLM
+# ── API ───────────────────────────────────────────────────────────────────────
+fastapi==0.109.2
+uvicorn==0.27.1         # no import: the ASGI server entrypoint
+supabase==2.11.0
+httpx==0.27.2           # no import: pins supabase's HTTP transport
+
+# ── LLM ───────────────────────────────────────────────────────────────────────
+google-generativeai==0.8.6
+groq==1.6.0
+
+# ── Config ────────────────────────────────────────────────────────────────────
+python-dotenv==1.2.3
+
+# Removed as unused (no import anywhere in the tree, verified by import inventory):
+#   langchain, langchain-community  — the RAG chain is hand-written in rag/
+#   sqlalchemy, psycopg2-binary, pgvector — Supabase is reached over its REST client
+#   requests, aiohttp, aiofiles, beautifulsoup4, lxml — these existed for a scraper
+#     that was never part of this repo (it was a dangling submodule gitlink, removed
+#     in 1.5.0). Nothing in the tree performs outbound HTTP or HTML parsing.
+#   websockets — was pinning a supabase transitive; the resolver picks 15.0.1 via realtime

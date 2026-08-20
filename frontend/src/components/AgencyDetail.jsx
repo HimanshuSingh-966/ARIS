@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Search, FileText, Download, ChevronRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowLeft, Search, FileText, ChevronRight } from 'lucide-react';
 import { useParams, Link } from 'react-router-dom';
+import { api } from '../lib/api';
 
 function AgencyDetail() {
   const { source } = useParams();
   const [sections, setSections] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [filter, setFilter] = useState('');
 
   // Formatting strings
   const formatName = (str) => {
@@ -16,22 +19,40 @@ function AgencyDetail() {
   const agencyName = source ? (['fda', 'ema', 'cdsco'].includes(source.toLowerCase()) ? source.toUpperCase() : formatName(source)) : '';
 
   useEffect(() => {
+    if (!source) return;
+
+    let active = true;
     const fetchSections = async () => {
       setIsLoading(true);
+      setError('');
       try {
-        const res = await fetch(`/api/v1/sources/${source}/sections`);
-        if (res.ok) {
-          const data = await res.json();
-          setSections(data.sections || []);
-        }
+        const { data } = await api.get(`/sources/${encodeURIComponent(source)}/sections`);
+        if (!active) return;
+        setSections(data.sections || []);
       } catch (err) {
-        console.error("Error fetching sections:", err);
+        if (!active) return;
+        console.error('Error fetching sections:', err);
+        // Without this the list stayed empty and rendered "No categories found",
+        // so an API outage was indistinguishable from an agency with no documents.
+        setSections([]);
+        setError('Could not load categories. Please try again.');
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     };
-    if (source) fetchSections();
+
+    fetchSections();
+    return () => { active = false; };
   }, [source]);
+
+  // This box had no value, no handler and no effect at all — it was decoration. It
+  // filters the category list, which is what it actually sits above; the API has no
+  // endpoint for searching documents across every section of an agency, so the old
+  // "Search {agency} documents" label promised something that cannot be delivered
+  // from here. Per-document search lives one level down, in PdfList.
+  const visibleSections = filter
+    ? sections.filter(sec => formatName(sec).toLowerCase().includes(filter.trim().toLowerCase()))
+    : sections;
 
   return (
     <div className="flex-1 w-full h-full overflow-y-auto px-6 py-8 hide-scrollbar">
@@ -54,27 +75,33 @@ function AgencyDetail() {
 
         <div className="relative mb-8">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#0f766e]" />
-          <input 
-            type="text" 
-            placeholder={`Search ${agencyName} documents...`} 
+          <input
+            type="text"
+            placeholder={`Filter ${agencyName} categories...`}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
             className="w-full bg-white/60 border border-[#0f766e]/20 rounded-2xl py-4 pl-12 pr-4 text-[#0f172a] placeholder-[#0f766e]/60 focus:outline-none focus:border-[#0f766e]/50 transition-colors shadow-sm"
           />
         </div>
 
         <div className="space-y-4">
           <h3 className="text-xs font-bold text-[#0f766e] uppercase tracking-widest pl-2 mb-4">Document Categories</h3>
-          
+
           {isLoading ? (
             <div className="py-20 flex justify-center items-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0f766e]"></div>
             </div>
-          ) : sections.length === 0 ? (
-            <div className="py-10 text-center text-[#334155] font-medium border border-dashed border-[#0f766e]/20 rounded-2xl bg-white/40">
-              No categories found for this agency.
+          ) : error ? (
+            <div className="py-10 text-center text-red-700 font-medium border border-dashed border-red-300 rounded-2xl bg-red-50/60">
+              {error}
             </div>
-          ) : sections.map((sec, idx) => (
-            <Link 
-              key={idx} 
+          ) : visibleSections.length === 0 ? (
+            <div className="py-10 text-center text-[#334155] font-medium border border-dashed border-[#0f766e]/20 rounded-2xl bg-white/40">
+              {filter ? 'No categories matched your filter.' : 'No categories found for this agency.'}
+            </div>
+          ) : visibleSections.map((sec, idx) => (
+            <Link
+              key={sec || idx}
               to={`/explore/${source}/${sec}`}
               className="glass-card flex items-center justify-between p-5 hover:bg-white/80 transition-colors cursor-pointer group border-[#0f766e]/10 shadow-sm hover:shadow-md"
             >

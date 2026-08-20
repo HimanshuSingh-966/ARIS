@@ -1,0 +1,10 @@
+<!-- index.html referenced /vite.svg, but there was no public/ directory at all, so
+     every page load 404'd on the favicon. This is an ARIS mark in the theme accent
+     (#0f766e) rather than the Vite logo. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect width="32" height="32" rx="7" fill="#0f766e"/>
+  <path d="M10 24 L16 8 L22 24" fill="none" stroke="#ffffff" stroke-width="2.6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12.6 19 H19.4" fill="none" stroke="#ffffff" stroke-width="2.6"
+        stroke-linecap="round"/>
+</svg>

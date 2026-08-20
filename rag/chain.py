@@ -2,16 +2,22 @@
 rag/chain.py
 Full RAG chain — ties everything together.
 query → embed → retrieve → prompt → LLM → response with citations
+
+Failures propagate. An earlier version caught them and returned the exception text
+as the assistant's `answer`, which meant every outage looked like a successful
+response to the caller. api/routes/chat.py turns anything raised here into a 502.
 """
 
 import os
-import sys
 import logging
 from typing import Any
 
 try:
     from dotenv import load_dotenv
-    load_dotenv("../.env")
+    # Path-relative, not CWD-relative: load_dotenv("../.env") only found the file
+    # when the process happened to start from a direct subdirectory of the repo,
+    # so `python rag/chain.py` from the root silently ran without credentials.
+    load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 except ImportError:
     pass
 
@@ -22,7 +28,7 @@ try:
 except ImportError:
     raise ImportError("Could not import pipeline.embedder. Ensure pipeline/ module exists.")
 
-from rag.retriever import retrieve, retrieve_forms, search_forms_by_query, search_forms_semantic
+from rag.retriever import retrieve, search_forms_by_query, search_forms_semantic
 from rag.prompt    import build_prompt, build_sources, is_form_query
 from rag.llm       import generate
 
@@ -86,19 +92,26 @@ def run(
         seen_ids = set()
         unique_forms = []
         for f in forms:
-            if f["id"] not in seen_ids:
-                seen_ids.add(f["id"])
+            # `id` is the dedup key and the download route's parameter. A row
+            # without one is unusable, and indexing blindly raised KeyError here.
+            form_id = f.get("id")
+            if form_id is None:
+                log.warning("Skipping form row with no id: %r", f)
+                continue
+            if form_id not in seen_ids:
+                seen_ids.add(form_id)
                 # Add download metadata for UI
                 unique_forms.append({
-                    "id":          f["id"],
-                    "form_number": f.get("form_number", ""),
-                    "form_name":   f.get("title", f.get("form_name", "")),
-                    "country":     f.get("country", ""),
-                    "source":      f.get("source", ""),
-                    "description": f.get("rule_reference", ""),
-                    "b2_key":      f.get("b2_key", ""),
+                    "id":              form_id,
+                    "form_number":     f.get("form_number") or "",
+                    "form_name":       f.get("title") or f.get("form_name") or "",
+                    "country":         f.get("country") or "",
+                    "source":          f.get("source") or "",
+                    "description":     f.get("rule_reference") or f.get("description") or "",
+                    "b2_key":          f.get("b2_key") or "",
+                    "source_pdf_year": f.get("source_pdf_year") or "",
                 })
-        
+
         forms = unique_forms[:5]
 
     # Step 4 — Build prompt
@@ -113,11 +126,12 @@ def run(
     messages = build_prompt(query, chunks, country)
 
     # Step 5 — Generate answer
-    try:
-        answer = generate(messages, max_tokens=2048)
-    except Exception as e:
-        log.error(f"[Chain] LLM error: {e}")
-        answer = f"Error generating response: {str(e)}"
+    # Deliberately not wrapped: an LLM failure used to become
+    # answer="Error generating response: <detail>", which the API returned with
+    # HTTP 200. The frontend then rendered it as a normal assistant reply and the
+    # user had no way to tell a real answer from an outage. Let it raise so
+    # chat.py can answer 502.
+    answer = generate(messages, max_tokens=2048)
 
     # Step 6 — Build sources
     sources = build_sources(chunks)
