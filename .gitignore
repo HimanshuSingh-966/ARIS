@@ -4,62 +4,30 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+.env
+.pytest_cache/
 *.egg-info/
 .installed.cfg
 *.egg
-venv/
 .venv/
-.env
-.pytest_cache/
+venv/
 
-# Node / Frontend
-frontend/node_modules/
-frontend/dist/
-frontend/.env
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.test.local
-frontend/.env.production.local
-frontend/npm-debug.log*
-frontend/yarn-debug.log*
-frontend/yarn-error.log*
-frontend/.pnpm-debug.log*
-
-# Ide / OS
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
-# Docker
-.docker/
-docker-compose.override.yml
-
-# Logs
-*.log
-logs/
-
-# Source corpus — the master regulatory PDFs (data/master_pdfs/, ~18MB).
-#
-# They are build-time input to pipeline/extract_forms_from_master_pdfs.py and are
-# never read by the running application, so they do not belong in the repo. Keep
-# them on disk; the extractor exits non-zero with instructions if they are absent.
-#
-# A pattern with no slash matches at any depth, so this covers data/master_pdfs/
-# as well as the repo root.
-*.pdf
+# setuptools / distutils build output. These are ANCHORED with a leading slash on
+# purpose. A pattern like `lib/` with no leading slash matches a directory named
+# `lib` at ANY depth — which silently excluded frontend/src/lib/api.js from the
+# repo. Every component imports from that module, so the working tree built fine
+# while a clean checkout (Vercel) could not resolve it at all. These names are
+# only ever produced at the project root, so anchor them there.
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
+/env/
