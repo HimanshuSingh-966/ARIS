@@ -12,6 +12,12 @@
  *   Replaces the `/api/(.*)` rewrite that previously sat in vercel.json with the
  *   backend URL hardcoded in it and committed to the repo.
  *
+ *   vercel.json now carries only the SPA fallback, whose source regex
+ *   `/((?!api/).*)` uses a negative lookahead so that /api/* is NOT rewritten to
+ *   index.html and reaches this function instead. That explanation lives here
+ *   because vercel.json cannot hold it: JSON has no comments, and Vercel validates
+ *   the file against a strict schema that rejects unknown keys such as "comment".
+ *
  * WHY EDGE RUNTIME, NOT NODE
  *   Node serverless functions on Vercel Hobby buffer the whole response and cap
  *   it at 4.5 MB. /api/v1/documents/{id}/stream serves regulatory PDFs that
