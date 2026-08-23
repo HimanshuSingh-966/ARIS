@@ -11,9 +11,9 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-CHUNK_SIZE    = 500    # tokens (approx 4 chars per token → ~2000 chars)
-CHUNK_OVERLAP = 50     # tokens overlap between chunks
-CHARS_PER_TOK = 4      # rough estimate
+CHUNK_SIZE    = 400    # tokens (approx 3 chars per token → ~1200 chars)
+CHUNK_OVERLAP = 60     # tokens overlap between chunks
+CHARS_PER_TOK = 3      # rough estimate
 
 
 # ── Section detection ─────────────────────────────────────────────────────────
