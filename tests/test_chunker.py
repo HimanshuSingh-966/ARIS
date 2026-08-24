@@ -30,7 +30,7 @@ META = {
     "source_url":  "https://example.invalid/test-doc.pdf",
 }
 
-# Long enough to force several chunks (chunk target is ~2000 chars).
+# Long enough to force several chunks (chunk target is ~1200 chars).
 LONG_TEXT = ("The applicant shall submit the required particulars. " * 200)
 
 
@@ -87,9 +87,16 @@ def test_offsets_advance_and_overlap():
 
 
 def test_chunks_are_near_the_target_size():
+    """
+    +200 is the exact ceiling, not slack: the sentence-boundary search reads
+    text[search_start:end + 200], so `end` can land up to 200 chars past nominal and
+    no further. The bound matters because the embedding model truncates silently past
+    510 tokens — see the config comment in pipeline/chunker.py. Widening this
+    assertion would hide the overshoot growing back over that budget.
+    """
     chunks = split_into_chunks(LONG_TEXT, META)
     target = CHUNK_SIZE * CHARS_PER_TOK
-    assert all(len(c["content"]) <= target + 400 for c in chunks)
+    assert all(len(c["content"]) <= target + 200 for c in chunks)
 
 
 def test_short_text_yields_one_chunk():

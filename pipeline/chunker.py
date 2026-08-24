@@ -1,6 +1,6 @@
 """
 pipeline/chunker.py
-Splits extracted text into ~500 token chunks with 50 token overlap.
+Splits extracted text into ~400 token chunks with 60 token overlap.
 Tags each chunk with metadata for RAG retrieval.
 """
 
@@ -11,6 +11,34 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
+#
+# These three are pinned by the embedding model, not chosen for retrieval taste.
+# BAAI/bge-small-en-v1.5 is BERT-based with max_position_embeddings = 512, which is
+# a hard architectural cap — 2 of those go to the [CLS]/[SEP] markers, leaving 510
+# usable. FastEmbed truncates past that **silently**: no exception, no warning. The
+# full chunk text still reaches documents.content, so a row that is too long looks
+# completely correct while its embedding represents only the opening ~510 tokens.
+# The tail is stored and unsearchable, and the only symptom is answers being quietly
+# worse.
+#
+# CHARS_PER_TOK is 3, not the more familiar 4. Two reasons:
+#
+#   1. 4.0 chars/token is a GPT-family BPE figure over English prose (50-100k
+#      vocab). bge-small uses BERT WordPiece with a 30,522 vocab, which compresses
+#      worse — nearer 3.5-3.8 on plain English, and 3.0-3.4 on this corpus, where
+#      form codes, rule numbers, dates and acronyms fragment into many tokens each.
+#
+#   2. The sentence-boundary search below may overshoot the nominal size by up to
+#      200 chars, so the real ceiling is CHUNK_SIZE * CHARS_PER_TOK + 200. At 3 that
+#      is 1400 chars — roughly 410-480 real tokens, inside 510 even on the worst
+#      ratio. At 4 it was 2200 chars, which needs 4.3 chars/token to fit and so
+#      overflowed by the config's own assumption before the corpus was considered.
+#
+# Keep CHARS_PER_TOK an int: it multiplies into the slice indices below.
+#
+# Note this cannot rescue non-English text. bge-small-**en** has almost no Cyrillic
+# wordpieces, so Bulgarian degrades toward per-character tokens (~1-1.5 chars/token)
+# and no chunk size fits. Those documents need excluding, not resizing.
 CHUNK_SIZE    = 400    # tokens (approx 3 chars per token → ~1200 chars)
 CHUNK_OVERLAP = 60     # tokens overlap between chunks
 CHARS_PER_TOK = 3      # rough estimate
@@ -70,8 +98,8 @@ def split_into_chunks(text: str, metadata: dict[str, Any]) -> list[dict[str, Any
             metadata.get("doc_name", "<unknown>"),
         )
 
-    chunk_chars   = CHUNK_SIZE    * CHARS_PER_TOK   # ~2000 chars
-    overlap_chars = CHUNK_OVERLAP * CHARS_PER_TOK   # ~200 chars
+    chunk_chars   = CHUNK_SIZE    * CHARS_PER_TOK   # ~1200 chars
+    overlap_chars = CHUNK_OVERLAP * CHARS_PER_TOK   # ~180 chars
 
     chunks = []
     start  = 0
@@ -137,7 +165,7 @@ def split_into_chunks(text: str, metadata: dict[str, Any]) -> list[dict[str, Any
 
 
 def estimate_tokens(text: str) -> int:
-    """Rough token count estimate (1 token ≈ 4 chars)."""
+    """Rough token count estimate (1 token ≈ CHARS_PER_TOK chars)."""
     return len(text) // CHARS_PER_TOK
 
 
