@@ -7,6 +7,117 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.6.0] — 2026-08-24
+
+An ingestion-durability release. 1.5.0 fixed what was stored; this fixes what happens
+when storing it goes wrong. Both changes were found while sizing a full re-ingest of the
+~200 PDFs in B2 — the longest single run this project performs, and the one most likely
+to be interrupted.
+
+### ⚠️ Action required before deploying
+
+**Re-ingest from scratch — a partial re-ingest will not pick up the new chunk size.**
+The already-ingested check is keyed on `b2_key` alone and has no idea what chunk size
+produced the existing rows, so any document already in `documents` keeps its old
+~2000-char chunks permanently and a re-run skips it. Truncate `documents` (or run
+`supabase/schema.sql`, which rebuilds it) before `make ingest`. If you took Path A in
+1.5.0 and have not ingested yet, there is nothing to do — this is already the state
+you are in.
+
+### Fixed
+
+- **An interrupted ingest could leave a document permanently half-stored, reported as
+  a success.** `pipeline/vector_store.save_chunks` writes in batches of 50, each a
+  separate autocommitted request, and it caught the failure and returned the *partial*
+  count. `doc_already_ingested()` asks only whether **any** chunk exists for a
+  `b2_key`, so a document that died after batch 3 of 9 left 150 rows behind and was
+  skipped as "already ingested" on every later run — two-thirds missing for the life
+  of the database. The non-zero return then made `ingestor.process_document` report
+  status `done`, count it under `Docs ingested`, and write its `doc_metadata` row, so
+  the document appeared **fully browsable** in the UI while most of its text was
+  unsearchable. Nothing logged an error, and the run's final summary looked clean.
+
+  `save_chunks` now rolls the partial write back and raises. Failures land in `Errors`
+  where they can be seen, and the document is retried from scratch on the next run.
+  Two details that are load-bearing rather than incidental:
+
+  - It catches `BaseException`, not `Exception`. Ctrl-C raises `KeyboardInterrupt`,
+    which is a *sibling* of `Exception` rather than a subclass — so the likeliest
+    interruption of a multi-hour ingest was the one case the original handler could
+    not see. It cleans up and re-raises, so the interrupt still stops the run.
+  - It raises instead of returning `0`. A count of zero would be honest after the
+    rollback, but the caller has no way to tell it apart from "this document had no
+    embeddable chunks", and raising is what routes it to `run_pipeline`'s
+    per-document handler.
+
+  The rollback is a delete filtered on `b2_key`, which is safe because `save_chunks`
+  only ever runs for a document with no rows in the table — `process_document`
+  returns early otherwise. If the delete *also* fails, the orphaned rows survive and
+  that document is unreachable forever, so the log says `ROLLBACK FAILED` and prints
+  the exact `delete from documents where b2_key = …` needed to recover.
+
+  Not chosen: wiring up the unused `chunk_exists(b2_key, char_start)` for per-chunk
+  resume. `char_start` is a function of the chunker constants, so after any change to
+  them the offsets no longer line up, the comparison matches nothing, and the "resume"
+  writes overlapping near-duplicate chunks instead of skipping. It is an optimisation
+  that saves re-doing one document, at the cost of turning a config change into
+  corruption. Also not chosen: a unique index on `(b2_key, char_start)` plus an
+  upsert. That is the cleaner design and makes re-runs inherently idempotent, but it
+  needs a schema change on the live database and still does not survive a constants
+  change, so it does not remove the truncate above.
+
+### Changed
+
+- **Chunk size 500 → 400 tokens, overlap 50 → 60, chars-per-token 4 → 3.** These are
+  pinned by the embedding model, not chosen for retrieval taste.
+  `BAAI/bge-small-en-v1.5` is BERT-based with `max_position_embeddings = 512` — a hard
+  architectural cap, of which 2 go to the `[CLS]`/`[SEP]` markers, leaving 510 usable.
+  FastEmbed truncates past that **silently**: no exception, no warning. The full text
+  still reaches `documents.content`, so an oversized row looks completely correct
+  while its embedding represents only the opening ~510 tokens; the tail is stored and
+  unsearchable, and the only symptom is answers being quietly worse.
+
+  The old values overflowed by their own arithmetic. The sentence-boundary search may
+  overshoot the nominal size by up to 200 chars, so the real ceiling is
+  `CHUNK_SIZE * CHARS_PER_TOK + 200` — 2200 chars at the old settings, which needs
+  4.3 chars/token to fit 510 while the config assumed 4.0. And 4.0 is itself the wrong
+  figure here: it is a GPT-family BPE number over English prose (50–100k vocab), where
+  bge-small uses BERT WordPiece with a 30,522 vocab, which compresses worse — nearer
+  3.5–3.8 on plain English and 3.0–3.4 on this corpus, where form codes, rule numbers,
+  dates and acronyms fragment into several tokens each. At 3 the ceiling is 1400 chars,
+  roughly 410–480 real tokens, inside 510 even on the worst ratio. `CHARS_PER_TOK`
+  stays an `int` because it multiplies into slice indices. Expect roughly 1.8× the
+  chunk count for the same corpus (the stride drops from ~1800 to ~1020 chars), which
+  is still well inside the range where the deliberate absence of an ANN index is
+  correct.
+
+  This does not help non-English text. `bge-small-`**`en`** has almost no Cyrillic
+  wordpieces, so Bulgarian degrades toward per-character tokens (~1–1.5 chars/token)
+  and no chunk size fits. Those documents need excluding, not resizing.
+
+### Added
+
+- `pipeline/vector_store.delete_chunks_for_doc()` — the rollback primitive. Returns
+  `-1` rather than `0` when the delete itself fails, because "nothing to clean up" and
+  "cleanup did not happen" are indistinguishable from a count of zero and only the
+  second leaves a document permanently skipped. Refuses an empty `b2_key`: chunks fall
+  back to `""` when metadata omits the key, and `.eq("b2_key", "")` would match those
+  rows across *every* document rather than none.
+- `tests/test_vector_store.py` — 13 tests over the save and rollback paths against a
+  fake client injected into the module's cached `_client`, so the suite stays offline.
+  Covers the batch arithmetic, rollback on both `Exception` and `KeyboardInterrupt`,
+  that a first-batch failure attempts no delete, that the rollback leaves another
+  document's rows alone, and that a failed rollback logs the recovery SQL.
+
+### Known limitations
+
+- **The rollback needs one working request to the database.** If the interruption is
+  the connection itself, the delete fails too. That case is logged as
+  `ROLLBACK FAILED` with the statement to run, but it is not automatic.
+- Everything under 1.5.0's "Known limitations" still applies.
+
+---
+
 ## [1.5.0] — 2026-08-18
 
 A correctness and security release. Both headline features of the app — global chat

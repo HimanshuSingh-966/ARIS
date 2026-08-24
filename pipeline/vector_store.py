@@ -59,10 +59,48 @@ def doc_already_ingested(b2_key: str) -> bool:
         return False
 
 
+def delete_chunks_for_doc(b2_key: str) -> int:
+    """
+    Remove every chunk row belonging to one document.
+
+    Used to roll back a partial save_chunks write. Returns the number of rows
+    deleted, or -1 if the delete itself failed. The caller must distinguish those:
+    "nothing to clean up" and "cleanup did not happen" look the same from a count of
+    zero, and only the second one leaves the document permanently half-ingested.
+
+    Refuses an empty b2_key. Chunks fall back to `""` when metadata omits the key
+    (see save_chunks below), and `.eq("b2_key", "")` would match those rows across
+    every document rather than none.
+    """
+    if not b2_key:
+        log.error(
+            "delete_chunks_for_doc called with an empty b2_key — refusing. An empty "
+            "filter would match every chunk whose b2_key was never set, across all "
+            "documents."
+        )
+        return -1
+
+    try:
+        result = (
+            get_client()
+            .table("documents")
+            .delete()
+            .eq("b2_key", b2_key)
+            .execute()
+        )
+        return len(result.data or [])
+    except Exception:
+        log.exception("Failed to delete chunks for %s", b2_key)
+        return -1
+
+
 def save_chunks(chunks: list[dict[str, Any]]) -> int:
     """
     Save a batch of embedded chunks to Supabase documents table.
     Returns number of chunks saved.
+
+    Raises on a failed write, after rolling back whatever landed. It does not return
+    a partial count — see the except block for why that is unsafe.
     """
     if not chunks:
         return 0
@@ -90,20 +128,73 @@ def save_chunks(chunks: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
 
+    # save_chunks only ever runs for a document with no rows in the table:
+    # ingestor.process_document returns early when doc_already_ingested() is true.
+    # That invariant is what makes the delete-by-b2_key rollback below safe — there
+    # is nothing from an earlier successful run for it to destroy.
+    keys   = {r["b2_key"] for r in rows if r["b2_key"]}
+    b2_key = keys.pop() if len(keys) == 1 else ""
+
+    saved = 0
     try:
         # Insert in batches of 50 to avoid Supabase limits
-        saved = 0
         for i in range(0, len(rows), 50):
             batch = rows[i:i + 50]
             get_client().table("documents").insert(batch).execute()
             saved += len(batch)
         return saved
-    except Exception:
-        # Return what actually landed rather than 0: the caller reports this count,
-        # and claiming zero after three successful batches makes a partial failure
-        # look like a total one (or like a no-op re-run).
-        log.exception("save_chunks failed after %d/%d rows", saved, len(rows))
-        return saved
+    except BaseException:
+        # Each batch is a separate autocommitted request, so a failure partway
+        # through leaves the earlier batches in the table. Those rows are poison:
+        # doc_already_ingested() asks only whether *any* chunk exists, so the next
+        # run skips this document and it stays incomplete for the life of the
+        # database, with nothing anywhere reporting it. Roll the partial write back
+        # so the document is retried from scratch.
+        #
+        # BaseException, not Exception: Ctrl-C raises KeyboardInterrupt, which is a
+        # sibling of Exception rather than a subclass. That is the likeliest
+        # interruption of a multi-hour ingest and exactly the one `except Exception`
+        # would let past without cleaning up.
+        #
+        # Re-raising rather than returning a count is deliberate. An earlier version
+        # returned the partial count so the caller would not understate what landed,
+        # but after the rollback nothing has landed — and a non-zero return makes
+        # ingestor.process_document report "done", count the document as ingested,
+        # and write its doc_metadata row, which then presents a two-thirds-empty
+        # document as fully browsable. Raising instead means the per-document handler
+        # in run_pipeline counts it under Errors, while KeyboardInterrupt passes
+        # through that `except Exception` and stops the run as intended.
+        log.exception(
+            "save_chunks failed after %d/%d rows for %s",
+            saved, len(rows), b2_key or "<unknown b2_key>",
+        )
+
+        if saved:
+            removed = delete_chunks_for_doc(b2_key)
+            if removed >= 0:
+                log.warning(
+                    "Rolled back %d partial chunks for %s — it will be re-ingested on "
+                    "the next run",
+                    removed, b2_key,
+                )
+            elif b2_key:
+                log.error(
+                    "ROLLBACK FAILED — %d orphaned chunks remain for %s. "
+                    "doc_already_ingested() will treat this document as complete and "
+                    "skip it on every future run. Delete them before re-ingesting:\n"
+                    "    delete from documents where b2_key = '%s';",
+                    saved, b2_key, b2_key,
+                )
+            else:
+                log.error(
+                    "ROLLBACK FAILED — %d orphaned chunks remain and carry no single "
+                    "b2_key, so there is no delete filter that would not also match "
+                    "other documents. Identify and remove them by hand before "
+                    "re-ingesting.",
+                    saved,
+                )
+        raise
+
 
 def save_doc_metadata(meta: dict[str, Any]) -> bool:
     """Save document structural metadata explicitly for the V2 UI dashboard."""
