@@ -6,10 +6,12 @@ guidelines and forms across the **US FDA**, **Europe EMA**, and **India CDSCO**.
 React (Vite) frontend, FastAPI backend, Supabase pgvector for retrieval, Gemini 2.0
 for generation, Backblaze B2 for document storage.
 
-**Version 1.5.0** — see [CHANGELOG.md](CHANGELOG.md). If you are upgrading from an
-earlier revision, read its "Action required before deploying" section first: this
-release adds a fail-closed API key, and it needs a deliberate choice about your
-database — rebuild and re-ingest, or hand-apply the diff and backfill.
+**Version 1.7.0** — see [CHANGELOG.md](CHANGELOG.md). If you are upgrading from an
+earlier revision, read the "Action required before deploying" sections first: 1.5.0
+adds a fail-closed API key and needs a deliberate choice about your database (rebuild
+and re-ingest, or hand-apply the diff and backfill), and 1.6.0 requires a re-ingest
+from scratch because the changed chunk size does not propagate to documents already
+stored.
 
 ---
 

@@ -7,6 +7,54 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.7.0] — 2026-08-25
+
+A single-defect release. Every API call from the deployed frontend returned 404, so the
+document browser, sources list, and chat were all dead in production while the SPA itself
+loaded normally.
+
+### Fixed
+
+- **Every `/api/*` request with more than one path segment 404'd at Vercel's edge, so no
+  deployed API call ever reached the backend.** The Edge proxy was named
+  `frontend/api/[...path].js`, intending a catch-all. `[...param]` is a **Next.js**
+  convention; this is a plain Vite SPA using Vercel's zero-config `api/` directory, which
+  supports `[param]` but has no catch-all. Vercel read the filename as a parameter
+  literally called `...path` and compiled it to a single-segment matcher, `[^/]+`.
+
+  So `/api/foo` reached the function and `/api/v1/health` did not. Every route in the app
+  is mounted under `prefix="/api/v1"` (`api/main.py`), so every real request missed by
+  exactly one slash. The frontend surfaced this only as
+  `AxiosError: Request failed with status code 404`.
+
+  Nothing about the deployment looked wrong, which is why this took a while to find: the
+  function was built, listed in the dashboard's Functions tab as `/api/[...path]` with the
+  Edge runtime, deployed to eight regions, and correctly aliased to the production domain.
+  The only wrong artefact was the generated route regex, which no page in the dashboard
+  displays. What isolated it was that `/api/foo` returned FastAPI's own
+  `{"detail":"Not Found"}` as `application/json` — proof the proxy ran and authenticated —
+  while `/api/v1/health` returned Vercel's `text/plain` body with `x-vercel-error:
+  NOT_FOUND`, which only the edge can emit and the function's code paths never can.
+
+### Changed
+
+- **Routing is now explicit instead of inferred from a filename.** The function moved to
+  `frontend/api/proxy.js` — a static route name that needs no dynamic-route detection —
+  and `frontend/vercel.json` rewrites `/api/(.*)` to it, carrying the caller's real path in
+  an internal `__aris_path` query parameter. The handler reads that parameter, deletes it,
+  and forwards the remaining query untouched, falling back to its own pathname when the
+  parameter is absent. Rewrites are evaluated only after the filesystem check, so a direct
+  request to `/api/proxy` still reaches the function and simply gets the backend's 404.
+
+  `__aris_path` reaches neither the browser (rewrites are internal to Vercel) nor the
+  backend (deleted before the upstream fetch). The two existing guards continue to carry
+  the security weight unchanged: `new URL()` normalises `..` before the
+  `startsWith('/api/')` check, so a crafted value cannot escape the API surface, and the
+  origin comparison pins the upstream host. A caller who sets the parameter by hand gains
+  nothing they could not already request through the proxy.
+
+---
+
 ## [1.6.0] — 2026-08-24
 
 An ingestion-durability release. 1.5.0 fixed what was stored; this fixes what happens
@@ -174,7 +222,8 @@ need live credentials:
   allowing anonymous access. A missing environment variable is now an obvious
   outage instead of a silent hole in front of a service-role database key.
 - **The browser never sees the key or the backend's URL.** A new Vercel Edge
-  function (`frontend/api/[...path].js`) proxies `/api/*` and injects `X-API-Key`
+  function (`frontend/api/proxy.js`, added here as `frontend/api/[...path].js` and
+  renamed in 1.7.0) proxies `/api/*` and injects `X-API-Key`
   server-side. Edge, not Node: Hobby Node functions buffer responses and cap them at
   4.5 MB, which would truncate the multi-MB PDFs `/documents/{id}/stream` serves.
 - **Removed the hardcoded Render URL** from `frontend/vercel.json`. The backend
