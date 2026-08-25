@@ -31,3 +31,15 @@ venv/
 /var/
 /wheels/
 /env/
+
+# Node / frontend. Deliberately NOT anchored: node_modules is created wherever an
+# install runs (repo root under Docker, frontend/ under a normal `npm install`),
+# and unlike `lib/` above there is no legitimate source directory by this name.
+node_modules/
+frontend/dist/
+
+# Vercel CLI state. `vercel pull` writes the project's PRODUCTION environment
+# values — ARIS_API_KEY and ARIS_API_ORIGIN among them — to
+# .vercel/.env.development.local. Committing that would put the backend's shared
+# secret in the repo, defeating the entire point of the Edge proxy.
+.vercel/

@@ -4,7 +4,7 @@ Shared FastAPI dependencies: API-key auth, rate limiting, and cached clients.
 
 THREAT MODEL
   The frontend is a static SPA, so it cannot hold a secret. The API key lives in
-  the Vercel Edge proxy (frontend/api/[...path].js) and is injected server-side;
+  the Vercel Edge proxy (frontend/api/proxy.js) and is injected server-side;
   the browser never sees it and never learns the backend origin. This is what
   stops an anonymous caller from draining the Gemini/Groq quota or streaming
   private B2 PDFs directly.

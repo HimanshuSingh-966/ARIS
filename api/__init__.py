@@ -7,4 +7,4 @@ literal) and had already drifted from frontend/package.json, so /health could
 report a version the app was not. Import __version__ instead of writing a literal.
 """
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
